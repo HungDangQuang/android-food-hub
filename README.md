@@ -52,12 +52,13 @@ Chiều phụ thuộc: **View (`:app`) → Presentation → Domain ← Data**. `
 ## Tài liệu
 
 - `docs/uml/*.puml` và `docs/uml/img/*.png`: 15 sơ đồ UML. Render lại bằng `plantuml -tpng -o img docs/uml/*.puml`.
-- `docs/DESIGN_RATIONALE.md` (và `.docx`): Vấn đề → Lựa chọn → Đánh đổi, bằng chứng SOLID, MVVM, hạn chế đã biết, Change Request.
+- `docs/DESIGN_RATIONALE.md` (và `.docx`, 6 trang, bản nộp D4): Vấn đề → Lựa chọn → Đánh đổi, bằng chứng SOLID, MVVM, hạn chế đã biết, Change Request.
+- `docs/DESIGN_RATIONALE_full.md`: bản mở rộng dùng tham khảo khi bảo vệ (truy vết yêu cầu, bảng quyết định cho điểm mơ hồ, Phụ lục UML).
 - `docs/tools/build-docx.sh`: tạo lại `docs/DESIGN_RATIONALE.docx` từ bản `.md` (cần pandoc ≥ 3.1): `sh docs/tools/build-docx.sh`.
 
 ## Quyết định cho các điểm mơ hồ của đề
 
-Pickup đi thẳng PREPARING → DELIVERED; thanh toán diễn ra ở checkout (đơn tạo ở trạng thái CREATED); COD chỉ thu tiền khi giao; đơn hẹn giờ dùng chung state machine (giờ hẹn cách hiện tại từ 30 phút đến 7 ngày); hủy đơn trả hàng về kho, sửa món đổi tồn kho; đặt hàng xong thì xóa giỏ và nháp. Chi tiết ở mục 1 của Design Rationale.
+Pickup đi thẳng PREPARING → DELIVERED; thanh toán diễn ra ở checkout (đơn tạo ở trạng thái CREATED); COD chỉ thu tiền khi giao; đơn hẹn giờ dùng chung state machine (giờ hẹn cách hiện tại từ 30 phút đến 7 ngày); hủy đơn trả hàng về kho, sửa món đổi tồn kho; đặt hàng xong thì xóa giỏ và nháp. Chi tiết ở mục 1.2 của `docs/DESIGN_RATIONALE_full.md`.
 
 ## Phân công công việc
 
