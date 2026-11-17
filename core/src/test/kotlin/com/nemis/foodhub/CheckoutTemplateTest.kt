@@ -9,26 +9,35 @@ import com.nemis.foodhub.domain.PaymentFailedException
 import com.nemis.foodhub.domain.ValidationException
 import com.nemis.foodhub.domain.checkout.CheckoutContext
 import com.nemis.foodhub.domain.checkout.CheckoutProcess
+import com.nemis.foodhub.domain.checkout.CheckoutRequest
 import com.nemis.foodhub.domain.checkout.CheckoutServices
 import com.nemis.foodhub.domain.checkout.DeliveryCheckout
 import com.nemis.foodhub.domain.checkout.ScheduledCheckout
+import com.nemis.foodhub.domain.invoice.InvoiceFormatter
 import com.nemis.foodhub.domain.model.CartItem
 import com.nemis.foodhub.domain.model.Currency
+import com.nemis.foodhub.domain.model.Customer
 import com.nemis.foodhub.domain.model.MenuItem
 import com.nemis.foodhub.domain.model.Money
 import com.nemis.foodhub.domain.model.OrderId
 import com.nemis.foodhub.domain.model.OrderStatus
 import com.nemis.foodhub.domain.model.OrderType
+import com.nemis.foodhub.domain.notification.CustomerNotifier
 import com.nemis.foodhub.domain.notification.MultiChannelNotifier
 import com.nemis.foodhub.domain.order.Order
 import com.nemis.foodhub.domain.order.SynchronousOrderEventPublisher
 import com.nemis.foodhub.domain.payment.PaymentMethod
+import com.nemis.foodhub.domain.payment.PaymentProcessor
 import com.nemis.foodhub.domain.payment.PaymentReceipt
+import com.nemis.foodhub.domain.payment.PaymentRequest
 import com.nemis.foodhub.domain.payment.SimulatedPaymentProcessor
-import com.nemis.foodhub.domain.pricing.PriceBreakdown
 import com.nemis.foodhub.domain.pricing.PricingService
+import com.nemis.foodhub.domain.pricing.TaxCalculator
+import com.nemis.foodhub.domain.region.RegionFactory
 import com.nemis.foodhub.domain.region.RegionRegistry
+import com.nemis.foodhub.domain.region.vn.VietnamInvoiceFormatter
 import com.nemis.foodhub.domain.region.vn.VietnamRegionFactory
+import com.nemis.foodhub.domain.region.vn.VietnamVatCalculator
 import com.nemis.foodhub.domain.repository.InventoryService
 import com.nemis.foodhub.domain.repository.OrderRepository
 import org.junit.Assert.assertEquals
@@ -47,34 +56,68 @@ class CheckoutTemplateTest {
 
     // ---- the template fixes the order of steps ----
 
+    /** A subclass can only fill in the hooks; the fixed steps are observed through the collaborators they call. */
     private class RecordingCheckout(services: CheckoutServices, val log: MutableList<String>) : CheckoutProcess(services) {
-        override fun validate(ctx: CheckoutContext) { log += "validate"; super.validate(ctx) }
-        override fun calculatePrice(ctx: CheckoutContext): PriceBreakdown = super.calculatePrice(ctx).also { log += "price" }
-        override fun pay(ctx: CheckoutContext, price: PriceBreakdown): PaymentReceipt = super.pay(ctx, price).also { log += "pay" }
-        override fun confirm(ctx: CheckoutContext, price: PriceBreakdown, receipt: PaymentReceipt): Order =
-            super.confirm(ctx, price, receipt).also { log += "confirm" }
-        override fun notifyCustomer(order: Order) { log += "notify"; super.notifyCustomer(order) }
         override fun validateTypeRules(ctx: CheckoutContext) { log += "typeRules" }
         override fun placedMessage(order: Order) = "placed"
+    }
+
+    private class RecordingProcessor(private val log: MutableList<String>) : PaymentProcessor {
+        override val method = PaymentMethod.CARD
+        override val currency = Currency.VND
+        private val real = SimulatedPaymentProcessor(method, currency, "Recording")
+        override fun pay(request: PaymentRequest): PaymentReceipt = real.pay(request).also { log += "pay" }
+    }
+
+    /** Each collaborator writes the name of the step that called it. */
+    private fun recordingServices(log: MutableList<String>): CheckoutServices {
+        val inventory = object : InventoryService by SimulatedInventoryService(mapOf("pho-bo" to 50)) {
+            override fun isAvailable(itemId: String, quantity: Int) = true.also { log += "validate" }
+        }
+        val region = object : RegionFactory(VietnamRegionFactory.REGION) {
+            override fun newPaymentProcessor(method: PaymentMethod): PaymentProcessor = RecordingProcessor(log)
+            override fun createTaxCalculator() = object : TaxCalculator {
+                override fun taxFor(taxableAmount: Money) = VietnamVatCalculator().taxFor(taxableAmount).also { log += "price" }
+            }
+            override fun createInvoiceFormatter(): InvoiceFormatter = VietnamInvoiceFormatter()
+        }
+        val orders = object : OrderRepository by InMemoryOrderRepository() {
+            override fun save(order: Order) { log += "confirm" }
+        }
+        val notifier = object : CustomerNotifier {
+            override fun notifyOrderUpdate(customer: Customer, orderId: OrderId, text: String) { log += "notify" }
+            override fun notifyUrgent(customer: Customer, orderId: OrderId, text: String) {}
+            override fun notifyPromo(customer: Customer, headline: String) {}
+        }
+        return CheckoutServices(
+            RegionRegistry(listOf(region)), PricingService(), InMemoryPromoCatalog(), inventory, orders,
+            SynchronousOrderEventPublisher(), notifier, clock, SequentialIdGenerator()
+        )
     }
 
     @Test
     fun stepsRunInTheFixedOrderValidatePricePayConfirmNotify() {
         val log = mutableListOf<String>()
-        RecordingCheckout(app.services, log).checkout(Fixtures.vnRequest(app))
+        RecordingCheckout(recordingServices(log), log).checkout(Fixtures.vnRequest(app))
         assertEquals(listOf("validate", "typeRules", "price", "pay", "confirm", "notify"), log)
     }
 
     @Test
-    fun theTemplateMethodItselfCannotBeOverridden() {
-        val method = CheckoutProcess::class.java.getMethod("checkout", com.nemis.foodhub.domain.checkout.CheckoutRequest::class.java)
-        assertTrue(Modifier.isFinal(method.modifiers))
+    fun neitherTheTemplateNorItsFixedStepsCanBeOverridden() {
+        val type = CheckoutProcess::class.java
+        assertTrue(Modifier.isFinal(type.getMethod("checkout", CheckoutRequest::class.java).modifiers))
+
+        val fixedSteps = setOf("validate", "calculatePrice", "pay", "confirm", "notifyCustomer")
+        val steps = type.declaredMethods.filter { it.name in fixedSteps }
+        assertEquals(fixedSteps, steps.map { it.name }.toSet())
+        val overridable = steps.filterNot { Modifier.isFinal(it.modifiers) || Modifier.isPrivate(it.modifiers) }
+        assertTrue("overridable steps: ${overridable.map { it.name }}", overridable.isEmpty())
     }
 
     @Test
     fun noStepAfterAFailedStepIsExecuted() {
         val log = mutableListOf<String>()
-        val process = RecordingCheckout(app.services, log)
+        val process = RecordingCheckout(recordingServices(log), log)
         assertThrows(PaymentFailedException::class.java) {
             process.checkout(Fixtures.vnRequest(app, payer = SimulatedPaymentProcessor.DECLINED_PAYER))
         }
@@ -186,6 +229,7 @@ class CheckoutTemplateTest {
         override fun isAvailable(itemId: String, quantity: Int) = true
         override fun reserve(items: List<CartItem>) = throw OutOfStockException("race-condition")
         override fun release(items: List<CartItem>) {}
+        override fun replace(current: List<CartItem>, replacement: List<CartItem>) = throw OutOfStockException("race-condition")
     }
 
     private class FailingOrderRepository : OrderRepository {

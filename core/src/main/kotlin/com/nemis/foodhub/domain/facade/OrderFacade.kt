@@ -13,8 +13,9 @@ import com.nemis.foodhub.domain.model.OrderType
 import com.nemis.foodhub.domain.order.CancellationResult
 import com.nemis.foodhub.domain.order.OrderCapabilities
 import com.nemis.foodhub.domain.order.OrderEventPublisher
+import com.nemis.foodhub.domain.order.OrderStatusChanged
 import com.nemis.foodhub.domain.order.OrderStatusListener
-import com.nemis.foodhub.domain.order.Subscription
+import com.nemis.foodhub.domain.Subscription
 import com.nemis.foodhub.domain.pricing.PriceBreakdown
 import com.nemis.foodhub.domain.repository.OrderRepository
 import com.nemis.foodhub.domain.repository.getOrThrow
@@ -23,13 +24,15 @@ import com.nemis.foodhub.domain.usecase.EditOrderItemsUseCase
 import com.nemis.foodhub.domain.usecase.ExportInvoiceUseCase
 import com.nemis.foodhub.domain.usecase.RefundOrderUseCase
 
+/** [version] is the number of status transitions so far; it orders this read against [OrderStatusChanged] events. */
 data class OrderSummary(
     val id: OrderId,
     val type: OrderType,
     val status: OrderStatus,
     val capabilities: OrderCapabilities,
     val items: List<CartItem>,
-    val price: PriceBreakdown
+    val price: PriceBreakdown,
+    val version: Int
 )
 
 /**
@@ -76,7 +79,8 @@ class DefaultOrderFacade(
 
     override fun getOrder(orderId: OrderId): OrderSummary {
         val order = orders.getOrThrow(orderId)
-        return OrderSummary(order.id, order.type, order.status, order.capabilities, order.items, order.price)
+        val view = order.view()
+        return OrderSummary(order.id, order.type, view.status, view.capabilities, view.items, view.price, view.version)
     }
 
     override fun exportInvoice(orderId: OrderId, format: InvoiceFormat) = invoices.execute(orderId, format)

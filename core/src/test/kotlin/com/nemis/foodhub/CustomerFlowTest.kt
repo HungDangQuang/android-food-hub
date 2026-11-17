@@ -38,6 +38,11 @@ class CustomerFlowTest {
     fun menuViewModelListsRestaurantsAndTheirItems() {
         val vm = app.newMenuViewModel()
         assertEquals(setOf("r-vn-pho", "r-us-burger"), vm.uiState.value.restaurantIds.toSet())
+        assertEquals(
+            "the region of a restaurant comes from the menu data, not from the Android layer",
+            mapOf("r-vn-pho" to "VN", "r-us-burger" to "US"),
+            vm.uiState.value.restaurants.associate { it.id to it.regionCode }
+        )
         assertTrue(vm.uiState.value.items.isEmpty())
 
         vm.showRestaurant("r-vn-pho")

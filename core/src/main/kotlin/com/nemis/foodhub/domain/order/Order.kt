@@ -16,6 +16,15 @@ import com.nemis.foodhub.domain.region.Region
 import java.time.Clock
 import java.time.Instant
 
+/** Everything a screen shows about an order, read under one lock so the parts always belong together. */
+data class OrderView(
+    val status: OrderStatus,
+    val capabilities: OrderCapabilities,
+    val items: List<CartItem>,
+    val price: PriceBreakdown,
+    val version: Int
+)
+
 /**
  * Aggregate root and State-pattern context. Every behavioural method delegates to the current state;
  * the order contains no branching on status.
@@ -63,6 +72,10 @@ class Order(
     val capabilities: OrderCapabilities get() = synchronized(lock) { state.capabilitiesFor(context) }
     val history: List<StatusTransition> get() = synchronized(lock) { transitions.toList() }
 
+    fun view(): OrderView = synchronized(lock) {
+        OrderView(state.status, state.capabilitiesFor(context), items, price, transitions.size)
+    }
+
     private val context = Context()
 
     fun confirm() = operate { state.confirm(context) }
@@ -100,7 +113,9 @@ class Order(
             val at = clock.instant()
             transitions.add(StatusTransition(previous, next.status, at))
             next.onEnter(this)
-            pending.add(OrderStatusChanged(id, customer, previous, next.status, next.capabilitiesFor(this), at))
+            pending.add(
+                OrderStatusChanged(id, customer, previous, next.status, next.capabilitiesFor(this), at, transitions.size)
+            )
         }
 
         override fun replaceItems(items: List<CartItem>, price: PriceBreakdown) {

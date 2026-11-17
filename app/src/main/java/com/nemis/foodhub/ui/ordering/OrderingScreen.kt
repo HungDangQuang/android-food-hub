@@ -32,30 +32,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nemis.foodhub.domain.checkout.CheckoutRequest
-import com.nemis.foodhub.domain.model.Address
-import com.nemis.foodhub.domain.model.Customer
 import com.nemis.foodhub.domain.model.OrderId
 import com.nemis.foodhub.domain.model.OrderType
 import com.nemis.foodhub.domain.payment.PaymentMethod
-import com.nemis.foodhub.domain.payment.SimulatedPaymentProcessor
+import com.nemis.foodhub.presentation.CheckoutForm
 import com.nemis.foodhub.presentation.CheckoutUiState
 import com.nemis.foodhub.ui.OrderingViewModels
-import java.time.Clock
 import java.time.Duration
 
 /**
  * View only: renders the state of [MenuViewModel][com.nemis.foodhub.presentation.MenuViewModel],
  * [CartViewModel][com.nemis.foodhub.presentation.CartViewModel] and
  * [CheckoutViewModel][com.nemis.foodhub.presentation.CheckoutViewModel] and forwards user input to them.
- * Prices, taxes, fees and validation all come from the domain.
+ * The form fields below are raw input; the CheckoutViewModel turns them into a domain request. Prices, taxes, fees,
+ * the region and all validation come from the domain.
  */
 @Composable
 fun OrderingScreen(
     vms: OrderingViewModels,
-    customer: Customer,
-    regionOfRestaurant: Map<String, String>,
-    clock: Clock,
     onOrderPlaced: (OrderId) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -65,6 +59,14 @@ fun OrderingScreen(
 
     LaunchedEffect(Unit) {
         if (menu.selectedRestaurantId == null) menu.restaurantIds.firstOrNull()?.let(vms.menu::showRestaurant)
+    }
+
+    // Navigate once per placed order, then let the ViewModel return to Idle.
+    LaunchedEffect(checkout) {
+        (checkout as? CheckoutUiState.Success)?.let {
+            onOrderPlaced(it.confirmation.orderId)
+            vms.checkout.acknowledge()
+        }
     }
 
     var type by rememberSaveable { mutableStateOf(OrderType.DELIVERY) }
@@ -85,11 +87,11 @@ fun OrderingScreen(
         item { SectionTitle("Thực đơn") }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                menu.restaurantIds.forEach { id ->
+                menu.restaurants.forEach { restaurant ->
                     FilterChip(
-                        selected = id == menu.selectedRestaurantId,
-                        onClick = { vms.menu.showRestaurant(id) },
-                        label = { Text("$id (${regionOfRestaurant[id] ?: "?"})") }
+                        selected = restaurant.id == menu.selectedRestaurantId,
+                        onClick = { vms.menu.showRestaurant(restaurant.id) },
+                        label = { Text("${restaurant.id} (${restaurant.regionCode ?: "?"})") }
                     )
                 }
             }
@@ -129,7 +131,7 @@ fun OrderingScreen(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = vms.cart::undo, enabled = cart.canUndo) { Text("Hoàn tác") }
-                OutlinedButton(onClick = vms.cart::restoreDraft) { Text("Khôi phục nháp") }
+                OutlinedButton(onClick = vms.cart::restoreDraft, enabled = cart.canRestoreDraft) { Text("Khôi phục nháp") }
             }
             cart.error?.let { ErrorText(it) }
         }
@@ -150,7 +152,7 @@ fun OrderingScreen(
                 ChipRow("Giao sau", listOf(1L, 2L, 24L), scheduleHours, { scheduleHours = it }) { "$it giờ" }
             }
         }
-        if (type != OrderType.PICKUP) {
+        if (type.requiresCourier) {
             item {
                 OutlinedTextField(address, { address = it }, Modifier.fillMaxWidth(), label = { Text("Địa chỉ giao hàng") })
             }
@@ -168,7 +170,7 @@ fun OrderingScreen(
             OutlinedTextField(
                 payer, { payer = it }, Modifier.fillMaxWidth(),
                 label = { Text("Mã người trả") },
-                supportingText = { Text("Nhập ${SimulatedPaymentProcessor.DECLINED_PAYER} để giả lập thanh toán bị từ chối") }
+                supportingText = { Text("Nhập ${vms.checkout.declinedPayerRef} để giả lập thanh toán bị từ chối") }
             )
         }
         item {
@@ -183,26 +185,16 @@ fun OrderingScreen(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = cart.lines.isNotEmpty(),
                 onClick = {
-                    val items = vms.cart.items
-                    val restaurant = items.firstOrNull()?.item?.restaurantId ?: return@Button
                     vms.checkout.submit(
-                        CheckoutRequest(
-                            customer = customer,
-                            items = items,
+                        CheckoutForm(
                             type = type,
-                            regionCode = regionOfRestaurant[restaurant] ?: "",
                             paymentMethod = method,
                             payerRef = payer,
-                            promoCode = promo.trim().ifEmpty { null },
-                            deliveryAddress = if (type == OrderType.PICKUP) null else Address(address),
-                            scheduledAt = if (type == OrderType.SCHEDULED) {
-                                clock.instant().plus(Duration.ofHours(scheduleHours))
-                            } else {
-                                null
-                            }
+                            promoCode = promo,
+                            deliveryAddress = address,
+                            scheduleIn = if (type == OrderType.SCHEDULED) Duration.ofHours(scheduleHours) else null
                         )
                     )
-                    (vms.checkout.uiState.value as? CheckoutUiState.Success)?.let { onOrderPlaced(it.confirmation.orderId) }
                 }
             ) { Text("Đặt món") }
             (checkout as? CheckoutUiState.Failed)?.let { ErrorText(it.message) }

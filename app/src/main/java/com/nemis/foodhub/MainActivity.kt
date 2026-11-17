@@ -21,7 +21,10 @@ import com.nemis.foodhub.ui.ordering.OrderingScreen
 import com.nemis.foodhub.ui.theme.FoodHubTheme
 import com.nemis.foodhub.ui.tracking.OrderTrackingScreen
 
-/** Two demo screens: ordering (menu, cart, checkout) and the order screen (tracking, actions, invoice). */
+/**
+ * Two demo screens: ordering (menu, cart, checkout) and the order screen (tracking, actions, invoice).
+ * The activity only creates the ViewModel holders and switches between the screens.
+ */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,8 +32,8 @@ class MainActivity : ComponentActivity() {
         val app = application as FoodHubApplication
         setContent {
             FoodHubTheme {
-                val ordering = viewModel { OrderingViewModels(app.container, app.customer.id) }
-                val orderScreen = viewModel { OrderScreenViewModels(app.container) }
+                val ordering = viewModel { OrderingViewModels(app.container, app.customer) }
+                val orderScreen = viewModel { OrderScreenViewModels(app.container, app.customer) }
                 var openOrderId by rememberSaveable { mutableStateOf<String?>(null) }
 
                 fun closeOrder() {
@@ -39,28 +42,18 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    // Orders are in memory: after the process was killed, a restored id may point to nothing.
-                    val id = openOrderId?.takeIf { app.container.orders.findById(OrderId(it)) != null }
-                    if (id == null) {
+                    // bind() returns null when a restored id points to an order that no longer exists.
+                    val screen = openOrderId?.let { orderScreen.bind(OrderId(it)) }
+                    if (screen == null) {
                         OrderingScreen(
                             vms = ordering,
-                            customer = app.customer,
-                            regionOfRestaurant = app.regionOfRestaurant,
-                            clock = app.container.clock,
                             onOrderPlaced = { openOrderId = it.value },
                             modifier = Modifier.padding(innerPadding)
                         )
                     } else {
                         BackHandler(onBack = ::closeOrder)
-                        val orderId = OrderId(id)
-                        val (tracking, invoice) = orderScreen.bind(orderId)
                         OrderTrackingScreen(
-                            orderId = orderId,
-                            tracking = tracking,
-                            invoice = invoice,
-                            cart = ordering.cart,
-                            container = app.container,
-                            customer = app.customer,
+                            screen = screen,
                             onBack = ::closeOrder,
                             modifier = Modifier.padding(innerPadding)
                         )

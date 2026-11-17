@@ -1,103 +1,113 @@
 package com.nemis.foodhub.app
 
-import com.nemis.foodhub.data.InMemoryMenuRepository
-import com.nemis.foodhub.domain.checkout.CheckoutRequest
 import com.nemis.foodhub.domain.invoice.InvoiceFormat
-import com.nemis.foodhub.domain.model.Address
 import com.nemis.foodhub.domain.model.ChannelType
 import com.nemis.foodhub.domain.model.Customer
 import com.nemis.foodhub.domain.model.OrderId
 import com.nemis.foodhub.domain.model.OrderStatus
 import com.nemis.foodhub.domain.model.OrderType
 import com.nemis.foodhub.domain.payment.PaymentMethod
-import com.nemis.foodhub.domain.pricing.PromoCode
+import com.nemis.foodhub.presentation.CartViewModel
+import com.nemis.foodhub.presentation.CheckoutForm
 import com.nemis.foodhub.presentation.CheckoutUiState
+import com.nemis.foodhub.presentation.CheckoutViewModel
 import com.nemis.foodhub.presentation.InvoiceUiState
-import com.nemis.foodhub.presentation.OrderTrackingUiState
+import com.nemis.foodhub.presentation.OrderTrackingViewModel
+import java.nio.file.Files
 
 /**
  * Demo "View": a console that only forwards input to ViewModels and prints their state.
  * Run with: ./gradlew :core:run
  */
 fun main() {
-    val app = AppContainer()
+    val draftDir = Files.createTempDirectory("foodhub-drafts").toFile()
+    val app = AppContainer(draftDirectory = draftDir)
     val customer = Customer("c-1", "Hung", "+84900000001", "hung@example.com", setOf(ChannelType.PUSH, ChannelType.SMS, ChannelType.EMAIL))
 
     println("=== 0. Browse the menu ===")
     val menuVm = app.newMenuViewModel()
-    menuVm.uiState.value.restaurantIds.forEach { restaurantId ->
-        menuVm.showRestaurant(restaurantId)
-        println("$restaurantId: ${menuVm.uiState.value.items.map { "${it.name} (${it.price})" }}")
+    menuVm.uiState.value.restaurants.forEach { restaurant ->
+        menuVm.showRestaurant(restaurant.id)
+        println("${restaurant.id} (${restaurant.regionCode}): ${menuVm.uiState.value.items.map { "${it.name} (${it.price})" }}")
     }
 
-    println("\n=== 1. Cart: add, undo, crash recovery ===")
+    println("\n=== 1. Cart: add, undo, crash recovery from disk ===")
     val editor = app.newCartEditor(customer.id)
     val cartVm = app.newCartViewModel(editor)
     cartVm.addItem("pho-bo", 2)
     cartVm.addItem("ca-phe-sua")
-    println("cart: ${cartVm.uiState.value.lines.map { "${it.name} x${it.quantity}" }}")
+    println("cart: ${lines(cartVm)}")
     cartVm.undo()
-    println("after undo: ${cartVm.uiState.value.lines.map { "${it.name} x${it.quantity}" }}")
-    val afterCrash = app.newCartViewModel(app.newCartEditor(customer.id).also { it.restoreDraft() })
-    println("restored draft in a fresh session: ${afterCrash.uiState.value.lines.map { "${it.name} x${it.quantity}" }}")
+    println("after undo: ${lines(cartVm)}")
+    // A second container on the same directory stands for the app after the process was killed.
+    val afterRestart = AppContainer(draftDirectory = draftDir).let { it.newCartViewModel(it.newCartEditor(customer.id)) }
+    println("after restart: cart ${lines(afterRestart)}, draft offered=${afterRestart.uiState.value.canRestoreDraft}")
+    afterRestart.restoreDraft()
+    println("restored from disk: ${lines(afterRestart)}")
+    afterRestart.onCleared()
 
     println("\n=== 2. Checkout (VN, delivery, MoMo wallet, promo SAVE10) ===")
-    val checkoutVm = app.newCheckoutViewModel()
-    checkoutVm.submit(
-        CheckoutRequest(
-            customer, cartVm.items, OrderType.DELIVERY, "VN", PaymentMethod.WALLET, "momo-0901",
-            promoCode = "SAVE10", deliveryAddress = Address("12 Nguyen Hue, District 1")
-        )
-    )
-    val success = checkoutVm.uiState.value as CheckoutUiState.Success
-    val orderId = success.confirmation.orderId
-    println("placed ${orderId}: total ${success.confirmation.price.total}, status ${success.confirmation.status}")
+    val checkoutVm = app.newCheckoutViewModel(editor, customer)
+    val orderId = place(checkoutVm, CheckoutForm(OrderType.DELIVERY, PaymentMethod.WALLET, "momo-0901", "SAVE10", "12 Nguyen Hue, District 1"))
+    println("cart after checkout: ${lines(cartVm)}")
 
     println("\n=== 3. Real-time tracking (Observer) and state-dependent actions (State) ===")
     val trackingVm = app.newOrderTrackingViewModel(orderId)
-    fun show(label: String, vm: com.nemis.foodhub.presentation.OrderTrackingViewModel = trackingVm) = vm.uiState.value.let { s: OrderTrackingUiState ->
-        println("$label -> ${s.status} | edit=${s.canEditItems} cancel=${s.canCancel}(fee ${s.cancellationFeePercent}%) courier=${s.canTrackCourier} refund=${s.canRequestRefund} rate=${s.canRate}")
-    }
-    show("initial        ")
-    trackingVm.editItems(cartVm.items.map { it.copy(quantity = 3) })
-    println("   (items edited while CREATED, error=${trackingVm.uiState.value.error})")
-    app.lifecycle.confirm(orderId); show("restaurant ok  ")
-    trackingVm.editItems(cartVm.items)
+    val simulator = app.newSimulatorViewModel(orderId, listOf(customer))
+    show("initial        ", trackingVm)
+    trackingVm.setItemQuantity("pho-bo", 3)
+    println("   (items edited while CREATED: ${trackingVm.uiState.value.lines.map { "${it.name} x${it.quantity}" }}, total ${trackingVm.uiState.value.total})")
+    simulator.confirm(); show("restaurant ok  ", trackingVm)
+    trackingVm.setItemQuantity("pho-bo", 1)
     println("   (edit after CONFIRMED rejected: ${trackingVm.uiState.value.error})")
     trackingVm.cancel()
-    println("   (cancel after confirm is allowed with a 10% fee: now ${trackingVm.uiState.value.status})")
+    println("   (cancel after confirm: ${trackingVm.uiState.value.status}, ${trackingVm.uiState.value.notice})")
 
     println("\n=== 4. Second order: full lifecycle, then refund and rating ===")
-    val second = app.newCheckoutViewModel().also {
-        it.submit(CheckoutRequest(customer, cartVm.items, OrderType.DELIVERY, "VN", PaymentMethod.CARD, "visa-4242", deliveryAddress = Address("12 Nguyen Hue")))
-    }.uiState.value as CheckoutUiState.Success
-    val id2 = second.confirmation.orderId
+    cartVm.addItem("pho-bo", 2)
+    val id2 = place(checkoutVm, CheckoutForm(OrderType.DELIVERY, PaymentMethod.CARD, "visa-4242", deliveryAddress = "12 Nguyen Hue"))
     val vm2 = app.newOrderTrackingViewModel(id2)
-    app.lifecycle.confirm(id2); app.lifecycle.startPreparing(id2)
+    val sim2 = app.newSimulatorViewModel(id2, listOf(customer))
+    sim2.confirm(); sim2.startPreparing()
     vm2.cancel()
     println("cancel while PREPARING rejected: ${vm2.uiState.value.error}")
-    app.lifecycle.startDelivery(id2); app.lifecycle.markDelivered(id2)
+    sim2.startDelivery(); sim2.markDelivered()
     show("delivered      ", vm2)
     vm2.requestRefund()
+    println("   (${vm2.uiState.value.notice})")
     vm2.rate(5)
     show("after refund   ", vm2)
     vm2.onCleared()
 
     println("\n=== 5. US pickup order and invoices (region decides the notation) ===")
     val usEditor = app.newCartEditor("c-2").also { it.add(app.menu.findItem("cheeseburger")!!, 2) }
-    val us = app.newCheckoutViewModel().also {
-        it.submit(CheckoutRequest(customer, usEditor.cart.items, OrderType.PICKUP, "US", PaymentMethod.CARD, "visa-1111"))
-    }.uiState.value as CheckoutUiState.Success
+    val usId = place(app.newCheckoutViewModel(usEditor, customer), CheckoutForm(OrderType.PICKUP, PaymentMethod.CARD, "visa-1111"))
     printInvoice(app, id2, InvoiceFormat.CSV)
-    printInvoice(app, us.confirmation.orderId, InvoiceFormat.HTML)
-    println("US total ${us.confirmation.price.total}; tax ${us.confirmation.price.tax}")
+    printInvoice(app, usId, InvoiceFormat.HTML)
 
     println("\n=== 6. Promotion, messages sent and analytics ===")
-    app.promoAnnouncer.announce(PromoCode("SAVE10", 10), listOf(customer))
+    val log = app.newNotificationLogViewModel()
+    simulator.announcePromo("SAVE10")
     println("push=${app.sentMessages.on(ChannelType.PUSH).size} sms=${app.sentMessages.on(ChannelType.SMS).size} email=${app.sentMessages.on(ChannelType.EMAIL).size}")
+    println("latest: ${log.uiState.value.messages.first().let { "${it.channel} -> ${it.to}: ${it.body}" }}")
     println("urgent messages: ${app.sentMessages.all().count { it.urgent }}; CONFIRMED entered ${app.statusCounter.count(OrderStatus.CONFIRMED)} times")
-    println("menu items: ${InMemoryMenuRepository.SAMPLE_MENU.size}")
+    log.onCleared()
     trackingVm.onCleared()
+    cartVm.onCleared()
+}
+
+private fun lines(vm: CartViewModel) = vm.uiState.value.lines.map { "${it.name} x${it.quantity}" }
+
+private fun place(vm: CheckoutViewModel, form: CheckoutForm): OrderId {
+    vm.submit(form)
+    val success = vm.uiState.value as CheckoutUiState.Success
+    vm.acknowledge()
+    with(success.confirmation) { println("placed $orderId: total ${price.total} (tax ${price.tax}), status $status") }
+    return success.confirmation.orderId
+}
+
+private fun show(label: String, vm: OrderTrackingViewModel) = vm.uiState.value.let { s ->
+    println("$label -> ${s.status} | edit=${s.canEditItems} cancel=${s.canCancel}(fee ${s.cancellationFeePercent}%) courier=${s.canTrackCourier} refund=${s.canRequestRefund} rate=${s.canRate}")
 }
 
 private fun printInvoice(app: AppContainer, orderId: OrderId, format: InvoiceFormat) {

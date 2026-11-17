@@ -1,5 +1,6 @@
 package com.nemis.foodhub.domain.notification
 
+import com.nemis.foodhub.domain.Subscription
 import com.nemis.foodhub.domain.model.ChannelType
 import com.nemis.foodhub.domain.model.Customer
 import com.nemis.foodhub.domain.model.OrderId
@@ -90,6 +91,20 @@ class NotificationOrderListener(private val notifier: CustomerNotifier) : OrderS
             notifier.notifyOrderUpdate(event.customer, event.orderId, text)
         }
     }
+}
+
+/** One message as it left a channel: who it went to, how it was rendered by that channel, and whether it was urgent. */
+data class SentNotification(val channel: ChannelType, val to: String, val title: String, val body: String, val urgent: Boolean)
+
+/**
+ * Read side of the delivery gateways (an interface in the domain, implemented in the data layer like a repository),
+ * so the UI can show what was sent without knowing the channels. Observers are told after every new message.
+ */
+interface NotificationOutbox {
+    /** Newest first. */
+    fun recent(limit: Int): List<SentNotification>
+
+    fun observe(listener: () -> Unit): Subscription
 }
 
 /** Stand-in for the Admin tooling: announces a promotion to customers through the channels they opted into. */

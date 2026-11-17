@@ -72,7 +72,8 @@ class CheckoutContext(val request: CheckoutRequest, val factory: RegionFactory, 
 /**
  * Template Method (C4). [checkout] fixes the order of the steps and cannot be overridden:
  * validate -> price -> pay -> confirm -> notify.
- * Order types differ only in the hooks: [validateTypeRules], [deliveryFee], [placedMessage].
+ * Order types differ only in the hooks: [validateTypeRules], [deliveryFee], [placedMessage]. The steps themselves are
+ * private, so no subclass can skip a common rule (e.g. the stock check) or reorder the steps.
  *
  * Failure handling: payment failure leaves no trace; if confirmation fails after the money was taken, the
  * payment is refunded and the inventory released before the error is rethrown.
@@ -90,9 +91,9 @@ abstract class CheckoutProcess(protected val services: CheckoutServices) {
         return OrderConfirmation(order.id, order.status, order.capabilities, order.price, placedMessage(order))
     }
 
-    // ---- steps (open so that a test can observe the order in which the template calls them) ----
+    // ---- fixed steps: private, so a subclass can neither skip nor reorder them ----
 
-    protected open fun validate(ctx: CheckoutContext) {
+    private fun validate(ctx: CheckoutContext) {
         val request = ctx.request
         if (request.items.isEmpty()) throw ValidationException("Cart is empty")
         if (request.items.map { it.item.restaurantId }.distinct().size != 1) {
@@ -110,15 +111,15 @@ abstract class CheckoutProcess(protected val services: CheckoutServices) {
         validateTypeRules(ctx)
     }
 
-    protected open fun calculatePrice(ctx: CheckoutContext): PriceBreakdown =
+    private fun calculatePrice(ctx: CheckoutContext): PriceBreakdown =
         services.pricing.price(ctx.request.items, ctx.promo, deliveryFee(ctx), ctx.factory.createTaxCalculator())
 
-    protected open fun pay(ctx: CheckoutContext, price: PriceBreakdown): PaymentReceipt {
+    private fun pay(ctx: CheckoutContext, price: PriceBreakdown): PaymentReceipt {
         val processor = ctx.factory.createPaymentProcessor(ctx.request.paymentMethod)
         return processor.pay(PaymentRequest(ctx.orderId.value, price.total, ctx.request.paymentMethod, ctx.request.payerRef))
     }
 
-    protected open fun confirm(ctx: CheckoutContext, price: PriceBreakdown, receipt: PaymentReceipt): Order {
+    private fun confirm(ctx: CheckoutContext, price: PriceBreakdown, receipt: PaymentReceipt): Order {
         val items = ctx.request.items
         try {
             services.inventory.reserve(items)
@@ -152,7 +153,7 @@ abstract class CheckoutProcess(protected val services: CheckoutServices) {
         return order
     }
 
-    protected open fun notifyCustomer(order: Order) =
+    private fun notifyCustomer(order: Order) =
         services.notifier.notifyOrderUpdate(order.customer, order.id, placedMessage(order))
 
     // ---- hooks that differ per order type ----

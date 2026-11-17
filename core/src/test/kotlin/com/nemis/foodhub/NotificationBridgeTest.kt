@@ -80,7 +80,7 @@ class NotificationBridgeTest {
         assertEquals("[FoodHub] Order ORD-1", email.subject())
     }
 
-    private fun com.nemis.foodhub.data.channel.SentMessage.subject() = title
+    private fun com.nemis.foodhub.domain.notification.SentNotification.subject() = title
 
     @Test
     fun onlyTheChannelsTheCustomerOptedIntoAreUsed() {
@@ -131,7 +131,7 @@ class NotificationBridgeTest {
     }
 
     private fun changed(to: OrderStatus) = OrderStatusChanged(
-        orderId, customer, OrderStatus.CREATED, to, OrderCapabilities.NONE, Instant.EPOCH
+        orderId, customer, OrderStatus.CREATED, to, OrderCapabilities.NONE, Instant.EPOCH, version = 1
     )
 
     @Test

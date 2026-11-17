@@ -1,7 +1,9 @@
 package com.nemis.foodhub
 
+import com.nemis.foodhub.app.AppContainer
 import com.nemis.foodhub.domain.IllegalOrderOperationException
 import com.nemis.foodhub.domain.OrderNotFoundException
+import com.nemis.foodhub.domain.OutOfStockException
 import com.nemis.foodhub.domain.ValidationException
 import com.nemis.foodhub.domain.facade.DefaultOrderFacade
 import com.nemis.foodhub.domain.facade.OrderFacade
@@ -66,6 +68,46 @@ class OrderFacadeTest {
         assertThrows(IllegalOrderOperationException::class.java) {
             app.facade.editOrderItems(id, Fixtures.items(app, "pho-bo", 1))
         }
+        assertEquals("a rejected edit does not touch the stock", 48, app.inventory.stockOf("pho-bo"))
+    }
+
+    // ---- stock follows the order ----
+
+    @Test
+    fun cancellingAnOrderPutsItsItemsBackInStock() {
+        val id = app.place(quantity = 2).orderId
+        assertEquals(48, app.inventory.stockOf("pho-bo"))
+
+        app.facade.cancelOrder(id)
+
+        assertEquals(50, app.inventory.stockOf("pho-bo"))
+    }
+
+    @Test
+    fun editingItemsMovesTheDifferenceInAndOutOfStock() {
+        val id = app.place(quantity = 2).orderId
+
+        app.facade.editOrderItems(id, Fixtures.items(app, "pho-bo", 5))
+        assertEquals(45, app.inventory.stockOf("pho-bo"))
+
+        app.facade.editOrderItems(id, Fixtures.items(app, "ca-phe-sua", 1))
+        assertEquals(50, app.inventory.stockOf("pho-bo"))
+        assertEquals(49, app.inventory.stockOf("ca-phe-sua"))
+    }
+
+    @Test
+    fun anEditBeyondTheStockIsRejectedAndChangesNothing() {
+        val tight = AppContainer(clock = MutableClock(), initialStock = mapOf("pho-bo" to 3))
+        val id = tight.place(quantity = 2).orderId
+        val before = tight.facade.getOrder(id)
+
+        assertThrows(OutOfStockException::class.java) {
+            tight.facade.editOrderItems(id, Fixtures.items(tight, "pho-bo", 4))
+        }
+
+        assertEquals(before.items, tight.facade.getOrder(id).items)
+        assertEquals(before.price, tight.facade.getOrder(id).price)
+        assertEquals(1, tight.inventory.stockOf("pho-bo"))
     }
 
     @Test

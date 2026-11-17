@@ -1,5 +1,6 @@
 package com.nemis.foodhub.domain.usecase
 
+import com.nemis.foodhub.domain.DomainException
 import com.nemis.foodhub.domain.ValidationException
 import com.nemis.foodhub.domain.invoice.Invoice
 import com.nemis.foodhub.domain.invoice.InvoiceFormat
@@ -12,6 +13,7 @@ import com.nemis.foodhub.domain.payment.RefundReceipt
 import com.nemis.foodhub.domain.payment.Refundable
 import com.nemis.foodhub.domain.pricing.PricingService
 import com.nemis.foodhub.domain.region.RegionRegistry
+import com.nemis.foodhub.domain.repository.InventoryService
 import com.nemis.foodhub.domain.repository.OrderRepository
 import com.nemis.foodhub.domain.repository.getOrThrow
 import java.time.Clock
@@ -30,15 +32,21 @@ class RefundExecutor(private val regions: RegionRegistry) {
 }
 
 /**
- * The state decides fee and refund amount; this use case only persists and moves the money.
+ * The state decides fee and refund amount; this use case only persists, puts the items back in stock and moves
+ * the money.
  * Known limitation: if the gateway refund fails after the state change, the order stays CANCELLED and the
  * refund must be retried (a production system would queue it).
  */
-class CancelOrderUseCase(private val orders: OrderRepository, private val refunds: RefundExecutor) {
+class CancelOrderUseCase(
+    private val orders: OrderRepository,
+    private val refunds: RefundExecutor,
+    private val inventory: InventoryService
+) {
     fun execute(orderId: OrderId): CancellationResult {
         val order = orders.getOrThrow(orderId)
         val result = order.cancel()
         orders.save(order)
+        inventory.release(order.items)
         if (result.refund.isPositive) refunds.refund(order, result.refund)
         return result
     }
@@ -59,12 +67,15 @@ class RefundOrderUseCase(private val orders: OrderRepository, private val refund
 
 /**
  * Only allowed while the state permits editing (CREATED). Price is recalculated with the order's own region
- * rules. Known limitation: a price difference is not settled with the payment gateway.
+ * rules and the stock follows the new quantities. The state is asked first, so a rejected edit never touches
+ * the stock; if the new quantities are out of stock the order is put back as it was.
+ * Known limitation: a price difference is not settled with the payment gateway.
  */
 class EditOrderItemsUseCase(
     private val orders: OrderRepository,
     private val pricing: PricingService,
-    private val regions: RegionRegistry
+    private val regions: RegionRegistry,
+    private val inventory: InventoryService
 ) {
     fun execute(orderId: OrderId, newItems: List<CartItem>) {
         val order = orders.getOrThrow(orderId)
@@ -74,7 +85,15 @@ class EditOrderItemsUseCase(
         }
         val tax = regions.forRegion(order.region.code).createTaxCalculator()
         val newPrice = pricing.price(newItems, order.promo, order.price.deliveryFee, tax)
+        val previousItems = order.items
+        val previousPrice = order.price
         order.editItems(newItems, newPrice)
+        try {
+            inventory.replace(previousItems, newItems)
+        } catch (e: DomainException) {
+            order.editItems(previousItems, previousPrice)
+            throw e
+        }
         orders.save(order)
     }
 }

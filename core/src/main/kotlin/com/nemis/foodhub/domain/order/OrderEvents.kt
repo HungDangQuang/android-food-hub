@@ -1,5 +1,6 @@
 package com.nemis.foodhub.domain.order
 
+import com.nemis.foodhub.domain.Subscription
 import com.nemis.foodhub.domain.model.Customer
 import com.nemis.foodhub.domain.model.OrderId
 import com.nemis.foodhub.domain.model.OrderStatus
@@ -9,24 +10,23 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * [version] counts the transitions of the order (1 for the first one). A listener that also reads the order
+ * (see [OrderView.version]) keeps whichever it saw with the higher version, so a late read never hides an event.
+ */
 data class OrderStatusChanged(
     val orderId: OrderId,
     val customer: Customer,
     val previous: OrderStatus,
     val current: OrderStatus,
     val capabilities: OrderCapabilities,
-    val occurredAt: Instant
+    val occurredAt: Instant,
+    val version: Int
 )
 
 /** Observer (C2). */
 fun interface OrderStatusListener {
     fun onOrderStatusChanged(event: OrderStatusChanged)
-}
-
-/** Handle returned by subscribe; whoever subscribes is responsible for cancelling (e.g. ViewModel.onCleared). */
-interface Subscription {
-    val isActive: Boolean
-    fun cancel()
 }
 
 /** Subject. The publisher knows only the [OrderStatusListener] abstraction, never who is listening. */

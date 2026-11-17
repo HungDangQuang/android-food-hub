@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class OrderObserverTest {
 
     private fun event(id: String = "o-1", status: OrderStatus = OrderStatus.CONFIRMED) = OrderStatusChanged(
-        OrderId(id), Fixtures.customer, OrderStatus.CREATED, status, OrderCapabilities.NONE, Instant.EPOCH
+        OrderId(id), Fixtures.customer, OrderStatus.CREATED, status, OrderCapabilities.NONE, Instant.EPOCH, version = 1
     )
 
     @Test
@@ -77,7 +77,7 @@ class OrderObserverTest {
     fun aListenerMayCancelItselfWhileBeingNotified() {
         val publisher = SynchronousOrderEventPublisher()
         val calls = AtomicInteger()
-        lateinit var self: com.nemis.foodhub.domain.order.Subscription
+        lateinit var self: com.nemis.foodhub.domain.Subscription
         self = publisher.subscribe(OrderStatusListener { calls.incrementAndGet(); self.cancel() })
         val other = EventLog().also { publisher.subscribe(it) }
 

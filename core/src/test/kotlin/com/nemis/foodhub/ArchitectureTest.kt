@@ -83,6 +83,43 @@ class ArchitectureTest {
         assertTrue("status comparison in: ${ifOffenders.map { it.name }}", ifOffenders.isEmpty())
     }
 
+    // ---- Android views (module :app): render state and forward events to ViewModels, nothing else ----
+
+    private val appRoot: File? = listOf("app/src/main/java", "../app/src/main/java")
+        .map { File(System.getProperty("user.dir"), it) }
+        .firstOrNull { it.isDirectory }
+
+    private fun androidFile(path: String): File {
+        assumeTrue("app sources not found from ${System.getProperty("user.dir")}", appRoot != null)
+        return File(appRoot, "com/nemis/foodhub/$path")
+    }
+
+    private fun screens(): List<File> = listOf("ui/ordering", "ui/tracking")
+        .flatMap { androidFile(it).walkTopDown().filter { f -> f.extension == "kt" }.toList() }
+
+    @Test
+    fun screensTalkOnlyToViewModels() {
+        val files = screens()
+        assertTrue("no screens found", files.isNotEmpty())
+        val forbidden = listOf(
+            "com.nemis.foodhub.app.", "com.nemis.foodhub.data.", "com.nemis.foodhub.domain.repository",
+            "com.nemis.foodhub.domain.usecase", "com.nemis.foodhub.domain.checkout", "com.nemis.foodhub.domain.facade",
+            "com.nemis.foodhub.domain.notification", "com.nemis.foodhub.domain.pricing",
+            "com.nemis.foodhub.domain.payment.Simulated", "com.nemis.foodhub.domain.DomainException"
+        )
+        val offenders = files.filter { f -> imports(f).any { line -> forbidden.any { line.removePrefix("import ").startsWith(it) } } }
+        assertTrue("screens import services, data or the composition root: ${offenders.map { it.name }}", offenders.isEmpty())
+        val catching = files.filter { it.readText().contains("catch (") }
+        assertTrue("screens must not handle domain errors themselves: ${catching.map { it.name }}", catching.isEmpty())
+    }
+
+    @Test
+    fun theActivityUsesTheContainerOnlyToCreateViewModels() {
+        val text = androidFile("MainActivity.kt").readText()
+        val shortcuts = listOf("container.orders", "container.lifecycle", "container.promoAnnouncer", "container.sentMessages", "container.facade", "container.menu")
+        assertTrue("MainActivity bypasses the ViewModels: ${shortcuts.filter { it in text }}", shortcuts.none { it in text })
+    }
+
     @Test
     fun businessRulesAreNotInThePresentationLayer() {
         // ViewModels must not compute fees, taxes or know the cancellation percentage themselves.

@@ -29,16 +29,23 @@ class InMemoryOrderRepository : OrderRepository {
     override fun findById(id: OrderId): Order? = orders[id]
 }
 
-class InMemoryMenuRepository(items: List<MenuItem> = SAMPLE_MENU) : MenuRepository {
+class InMemoryMenuRepository(
+    items: List<MenuItem> = SAMPLE_MENU,
+    private val regionOfRestaurant: Map<String, String> = SAMPLE_REGIONS
+) : MenuRepository {
     private val byId = items.associateBy { it.id }
 
     override fun restaurantIds(): List<String> = byId.values.map { it.restaurantId }.distinct()
     override fun findItem(itemId: String): MenuItem? = byId[itemId]
     override fun itemsOf(restaurantId: String): List<MenuItem> = byId.values.filter { it.restaurantId == restaurantId }
+    override fun regionOf(restaurantId: String): String? = regionOfRestaurant[restaurantId]
 
     companion object {
         const val VN_RESTAURANT = "r-vn-pho"
         const val US_RESTAURANT = "r-us-burger"
+
+        /** Plain codes rather than references to the region factories: the data layer does not pick implementations. */
+        val SAMPLE_REGIONS = mapOf(VN_RESTAURANT to "VN", US_RESTAURANT to "US")
 
         val SAMPLE_MENU = listOf(
             MenuItem("pho-bo", VN_RESTAURANT, "Pho bo", Money.of(55_000, Currency.VND)),
@@ -57,16 +64,22 @@ class SimulatedInventoryService(initialStock: Map<String, Int>) : InventoryServi
     override fun isAvailable(itemId: String, quantity: Int) = (stock[itemId] ?: 0) >= quantity
 
     @Synchronized
-    override fun reserve(items: List<CartItem>) {
-        val needed = items.groupBy({ it.item.id }, { it.quantity }).mapValues { it.value.sum() }
-        needed.forEach { (id, qty) -> if ((stock[id] ?: 0) < qty) throw OutOfStockException(id) }
-        needed.forEach { (id, qty) -> stock[id] = stock.getValue(id) - qty }
-    }
+    override fun reserve(items: List<CartItem>) = replace(emptyList(), items)
 
     @Synchronized
     override fun release(items: List<CartItem>) {
         items.forEach { stock[it.item.id] = (stock[it.item.id] ?: 0) + it.quantity }
     }
+
+    @Synchronized
+    override fun replace(current: List<CartItem>, replacement: List<CartItem>) {
+        val change = quantities(replacement).toMutableMap()
+        quantities(current).forEach { (id, qty) -> change[id] = (change[id] ?: 0) - qty }
+        change.forEach { (id, delta) -> if ((stock[id] ?: 0) < delta) throw OutOfStockException(id) }
+        change.forEach { (id, delta) -> stock[id] = (stock[id] ?: 0) - delta }
+    }
+
+    private fun quantities(items: List<CartItem>) = items.groupBy({ it.item.id }, { it.quantity }).mapValues { it.value.sum() }
 
     @Synchronized
     fun stockOf(itemId: String): Int = stock[itemId] ?: 0

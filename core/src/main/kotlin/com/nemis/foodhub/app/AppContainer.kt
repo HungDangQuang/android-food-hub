@@ -1,5 +1,6 @@
 package com.nemis.foodhub.app
 
+import com.nemis.foodhub.data.FileCartDraftRepository
 import com.nemis.foodhub.data.InMemoryCartDraftRepository
 import com.nemis.foodhub.data.InMemoryMenuRepository
 import com.nemis.foodhub.data.InMemoryOrderRepository
@@ -11,6 +12,7 @@ import com.nemis.foodhub.data.channel.PushChannel
 import com.nemis.foodhub.data.channel.SentMessageLog
 import com.nemis.foodhub.data.channel.SmsChannel
 import com.nemis.foodhub.domain.cart.Cart
+import com.nemis.foodhub.domain.cart.CartDraftRepository
 import com.nemis.foodhub.domain.cart.CartEditor
 import com.nemis.foodhub.domain.cart.CartHistory
 import com.nemis.foodhub.domain.checkout.CheckoutServices
@@ -19,6 +21,7 @@ import com.nemis.foodhub.domain.checkout.PickupCheckout
 import com.nemis.foodhub.domain.checkout.ScheduledCheckout
 import com.nemis.foodhub.domain.facade.DefaultOrderFacade
 import com.nemis.foodhub.domain.facade.OrderFacade
+import com.nemis.foodhub.domain.model.Customer
 import com.nemis.foodhub.domain.model.OrderId
 import com.nemis.foodhub.domain.model.OrderType
 import com.nemis.foodhub.domain.notification.MultiChannelNotifier
@@ -42,25 +45,32 @@ import com.nemis.foodhub.presentation.CartViewModel
 import com.nemis.foodhub.presentation.CheckoutViewModel
 import com.nemis.foodhub.presentation.InvoiceViewModel
 import com.nemis.foodhub.presentation.MenuViewModel
+import com.nemis.foodhub.presentation.NotificationLogViewModel
 import com.nemis.foodhub.presentation.OrderTrackingViewModel
+import com.nemis.foodhub.presentation.SimulatorViewModel
+import java.io.File
 import java.time.Clock
 
 /**
  * Composition root: the ONLY place where concrete classes are chosen and wired (constructor injection).
  * No singletons or service locators; tests build their own container with a fixed clock or extra regions.
+ * [draftDirectory]: where cart drafts are written so they survive the process (Android passes its files dir);
+ * null keeps them in memory (tests, console demo).
  */
 class AppContainer(
     val clock: Clock = Clock.systemUTC(),
     regionFactories: List<RegionFactory> = listOf(VietnamRegionFactory(), UsRegionFactory()),
     initialStock: Map<String, Int> = mapOf("pho-bo" to 50, "ca-phe-sua" to 50, "cheeseburger" to 50, "fries" to 50),
-    private val cartHistoryLimit: Int = 10
+    private val cartHistoryLimit: Int = 10,
+    draftDirectory: File? = null
 ) {
     val sentMessages = SentMessageLog()
     val statusCounter = OrderStatusCounter()
     val inventory = SimulatedInventoryService(initialStock)
     val orders = InMemoryOrderRepository()
     val menu = InMemoryMenuRepository()
-    val drafts = InMemoryCartDraftRepository()
+    val drafts: CartDraftRepository =
+        draftDirectory?.let { FileCartDraftRepository(it, Cart.SnapshotCodec) } ?: InMemoryCartDraftRepository()
     val events: OrderEventPublisher = SynchronousOrderEventPublisher()
 
     private val regions = RegionRegistry(regionFactories)
@@ -80,9 +90,9 @@ class AppContainer(
             OrderType.PICKUP to PickupCheckout(services),
             OrderType.SCHEDULED to ScheduledCheckout(services)
         ),
-        cancelOrder = CancelOrderUseCase(orders, refunds),
+        cancelOrder = CancelOrderUseCase(orders, refunds, inventory),
         refundOrder = RefundOrderUseCase(orders, refunds),
-        editOrder = EditOrderItemsUseCase(orders, pricing, regions),
+        editOrder = EditOrderItemsUseCase(orders, pricing, regions, inventory),
         invoices = ExportInvoiceUseCase(orders, regions, clock),
         orders = orders,
         events = events
@@ -103,6 +113,9 @@ class AppContainer(
     fun newMenuViewModel() = MenuViewModel(menu)
     fun newInvoiceViewModel(orderId: OrderId) = InvoiceViewModel(facade, orderId)
     fun newCartViewModel(editor: CartEditor) = CartViewModel(editor, menu)
-    fun newCheckoutViewModel() = CheckoutViewModel(facade)
+    fun newCheckoutViewModel(editor: CartEditor, customer: Customer) = CheckoutViewModel(facade, editor, menu, customer, clock)
     fun newOrderTrackingViewModel(orderId: OrderId) = OrderTrackingViewModel(facade, orderId)
+    fun newSimulatorViewModel(orderId: OrderId, audience: List<Customer>) =
+        SimulatorViewModel(lifecycle, promoAnnouncer, services.promos, orderId, audience)
+    fun newNotificationLogViewModel() = NotificationLogViewModel(sentMessages)
 }
