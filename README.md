@@ -58,3 +58,11 @@ Chiều phụ thuộc: **View (`:app`) → Presentation → Domain ← Data**. `
 ## Quyết định cho các điểm mơ hồ của đề
 
 Pickup đi thẳng PREPARING → DELIVERED; thanh toán diễn ra ở checkout (đơn tạo ở trạng thái CREATED); COD chỉ thu tiền khi giao; đơn hẹn giờ dùng chung state machine (giờ hẹn cách hiện tại từ 30 phút đến 7 ngày); hủy đơn trả hàng về kho, sửa món đổi tồn kho; đặt hàng xong thì xóa giỏ và nháp. Chi tiết ở mục 1 của Design Rationale.
+
+## Phân công công việc
+
+| Thành viên | Tỉ lệ | Phạm vi phụ trách | Commit |
+|---|---|---|---|
+| **HungDQ58** | ~53% (10/19 commit) | Khởi tạo dự án Gradle đa module; model domain, `Money`, exception; pricing, payment (`Payable`/`Refundable`), invoice; **C1 State**, **C2 Observer**, **C3 Abstract Factory**, repository interface và bản in-memory, **C4 Template Method**, **C5 Bridge**, **C6 Memento**, cùng unit test của từng pattern | `c5f72b6`, `dceec37`, `7041beb`, `5fcd7ef`, `4ccd4a0`, `dc6b19b`, `552b8e1`, `4b9c183`, `e6b426e`, `67907bc` |
+| **TuanTA30** | ~21% (4/19 commit) | **C7 Facade** và các use case hủy/hoàn tiền/sửa món/xuất hóa đơn; ViewModel MVVM với StateFlow; `AppContainer` (composition root) và demo console; `ArchitectureTest`, `CustomerFlowTest`; UI Jetpack Compose (màn Đặt món, Theo dõi đơn) | `80d4a7e`, `010fdb4`, `0a8d8dd`, `e18dfe0` |
+| **KhoiPD9** | ~26% (5/19 commit) | Bộ UML (use case, class, sequence, state); Design Rationale và README; cấu hình `.gitignore`; rà soát đề và sửa cho khớp yêu cầu (lưu nháp ra file, outbox thông báo, bổ sung test); cập nhật rationale, README, UML khớp với code | `ffa9966`, `9f1d9e2`, `e928d44`, `c25452e`, `349d033` |
