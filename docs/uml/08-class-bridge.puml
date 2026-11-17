@@ -61,7 +61,7 @@ interface CustomerNotifier {
 }
 class MultiChannelNotifier {
   -channels: Map<ChannelType, NotificationChannel>
-  -onChannelFailure: (ChannelType, Exception) -> Unit
+  {field} -onChannelFailure: (ChannelType, Exception) -> Unit
   +notifyOrderUpdate(customer: Customer, orderId: OrderId, text: String)
   +notifyUrgent(customer: Customer, orderId: OrderId, text: String)
   +notifyPromo(customer: Customer, headline: String)
@@ -75,11 +75,27 @@ class PromoAnnouncer <<Admin stand-in>> {
   -notifier: CustomerNotifier
   +announce(promo: PromoCode, customers: List<Customer>)
 }
-class SentMessageLog {
-  +record(message: SentMessage)
-  +all(): List<SentMessage>
-  +on(channel: ChannelType): List<SentMessage>
+interface NotificationOutbox {
+  +recent(limit: Int): List<SentNotification>
+  +observe(listener: () -> Unit): Subscription
 }
+class SentNotification <<data>> {
+  +channel: ChannelType
+  +to: String
+  +title: String
+  +body: String
+  +urgent: Boolean
+}
+class SentMessageLog {
+  -messages: List<SentNotification>
+  {field} -listeners: List<() -> Unit>
+  +record(message: SentNotification)
+  +all(): List<SentNotification>
+  +on(channel: ChannelType): List<SentNotification>
+  +recent(limit: Int): List<SentNotification>
+  +observe(listener: () -> Unit): Subscription
+}
+class NotificationLogViewModel
 class Customer
 
 OrderUpdateNotification --|> Notification
@@ -95,6 +111,9 @@ Message --> "1" Priority
 PushChannel --> "1" SentMessageLog
 SmsChannel --> "1" SentMessageLog
 EmailChannel --> "1" SentMessageLog
+SentMessageLog ..|> NotificationOutbox
+SentMessageLog o--> "0..*" SentNotification
+NotificationLogViewModel --> "1" NotificationOutbox : observes
 Notification ..> Customer
 MultiChannelNotifier ..|> CustomerNotifier
 MultiChannelNotifier --> "0..*" NotificationChannel

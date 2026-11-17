@@ -11,6 +11,7 @@ participant "OrderRepository" as Repo
 participant "Order" as Order
 participant "ConfirmedState" as State
 participant "OrderEventPublisher" as Publisher
+participant "InventoryService" as Inventory
 participant "RefundExecutor" as Refunds
 participant "RegionRegistry" as Registry
 participant "RegionFactory" as Factory
@@ -29,6 +30,8 @@ Order -> Publisher : publish(OrderStatusChanged CONFIRMED -> CANCELLED)
 note right of Publisher : observers react: UI state, urgent notification, analytics
 Order --> UseCase : CancellationResult(fee, refund)
 UseCase -> Repo : save(order)
+UseCase -> Inventory : release(order.items)
+note right of Inventory : the cancelled items go back in stock
 
 opt refund.isPositive
   UseCase -> Refunds : refund(order, refund)
@@ -46,7 +49,9 @@ end note
 
 UseCase --> Facade : CancellationResult
 Facade --> VM : CancellationResult
-VM --> View : state updated by the event (status CANCELLED)
+VM -> Facade : getOrder(orderId)
+Facade --> VM : OrderSummary
+VM --> View : uiState: status CANCELLED,\nnotice = Cancelled(fee, refund)
 note over State
   Not allowed from PREPARING onwards:
   the state throws IllegalOrderOperationException and

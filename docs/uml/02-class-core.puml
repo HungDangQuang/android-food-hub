@@ -28,6 +28,7 @@ class Order {
   +status: OrderStatus
   +capabilities: OrderCapabilities
   +history: List<StatusTransition>
+  +view(): OrderView
   +confirm()
   +startPreparing()
   +startDelivery()
@@ -140,6 +141,13 @@ class PromoCode <<data>> {
 }
 class OrderState
 class OrderStatusChanged
+class OrderView <<data>> {
+  +status: OrderStatus
+  +capabilities: OrderCapabilities
+  +items: List<CartItem>
+  +price: PriceBreakdown
+  +version: Int
+}
 
 interface OrderRepository {
   +save(order: Order)
@@ -149,11 +157,13 @@ interface MenuRepository {
   +restaurantIds(): List<String>
   +findItem(itemId: String): MenuItem?
   +itemsOf(restaurantId: String): List<MenuItem>
+  +regionOf(restaurantId: String): String?
 }
 interface InventoryService {
   +isAvailable(itemId: String, quantity: Int): Boolean
   +reserve(items: List<CartItem>)
   +release(items: List<CartItem>)
+  +replace(current: List<CartItem>, replacement: List<CartItem>)
 }
 interface PromoCatalog {
   +find(code: String): PromoCode?
@@ -182,6 +192,7 @@ Order --> "1" OrderType
 Order --> "1" PaymentMethod
 Order ..> OrderStatus
 Order ..> OrderStatusChanged : creates
+Order ..> OrderView : creates
 CartItem "*" --> "1" MenuItem
 MenuItem *-- "1" Money : price
 Money --> "1" Currency

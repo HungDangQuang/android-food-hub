@@ -7,11 +7,11 @@ hide empty members
 abstract class CheckoutProcess <<Abstract Class>> {
   #services: CheckoutServices
   +checkout(request: CheckoutRequest): OrderConfirmation
-  #validate(ctx: CheckoutContext)
-  #calculatePrice(ctx: CheckoutContext): PriceBreakdown
-  #pay(ctx: CheckoutContext, price: PriceBreakdown): PaymentReceipt
-  #confirm(ctx: CheckoutContext, price: PriceBreakdown, receipt: PaymentReceipt): Order
-  #notifyCustomer(order: Order)
+  -validate(ctx: CheckoutContext)
+  -calculatePrice(ctx: CheckoutContext): PriceBreakdown
+  -pay(ctx: CheckoutContext, price: PriceBreakdown): PaymentReceipt
+  -confirm(ctx: CheckoutContext, price: PriceBreakdown, receipt: PaymentReceipt): Order
+  -notifyCustomer(order: Order)
   #{abstract} validateTypeRules(ctx: CheckoutContext)
   #deliveryFee(ctx: CheckoutContext): Money
   #{abstract} placedMessage(order: Order): String
@@ -88,7 +88,9 @@ CheckoutContext --> "1" RegionFactory
 CheckoutServices --> "1" PricingService
 
 note right of CheckoutProcess
-  checkout() is the template method and is final:
+  checkout() is the template method and is final;
+  the five fixed steps are private (no subclass can skip or reorder them),
+  only the three hooks are protected:
   1. validate  -> common checks, then validateTypeRules (hook)
   2. calculatePrice -> uses deliveryFee (hook)
   3. pay

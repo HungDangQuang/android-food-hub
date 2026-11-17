@@ -11,7 +11,7 @@ interface OrderEventPublisher <<Subject>> {
 interface OrderStatusListener <<Observer>> {
   +onOrderStatusChanged(event: OrderStatusChanged)
 }
-interface Subscription {
+interface Subscription <<domain>> {
   +isActive: Boolean
   +cancel()
 }
@@ -22,9 +22,10 @@ class OrderStatusChanged <<data>> {
   +current: OrderStatus
   +capabilities: OrderCapabilities
   +occurredAt: Instant
+  +version: Int
 }
 class SynchronousOrderEventPublisher {
-  -onListenerFailure: (OrderStatusListener, Exception) -> Unit
+  {field} -onListenerFailure: (OrderStatusListener, Exception) -> Unit
   -registrations: CopyOnWriteArrayList<Registration>
   +publish(event: OrderStatusChanged)
   +subscribe(listener: OrderStatusListener, orderId: OrderId?): Subscription
@@ -37,6 +38,7 @@ class Registration <<private nested>> {
 class Order {
   -publisher: OrderEventPublisher
   -pending: List<OrderStatusChanged>
+  +view(): OrderView
 }
 
 class NotificationOrderListener {
@@ -51,6 +53,8 @@ class OrderStatusCounter {
 class OrderTrackingViewModel {
   -subscription: Subscription
   +uiState: StateFlow<OrderTrackingUiState>
+  -applyEvent(event: OrderStatusChanged)
+  -applySummary(summary: OrderSummary)
   +onCleared()
 }
 interface CustomerNotifier
@@ -72,6 +76,11 @@ OrderTrackingViewModel ..> OrderStatusListener : registers a listener
 OrderTrackingViewModel --> "1" Subscription : cancels in onCleared
 NotificationOrderListener --> "1" CustomerNotifier
 
+note right of OrderTrackingViewModel
+  Subscribes BEFORE reading the order. Events and reads carry a version
+  (number of transitions); the newer one wins, so no event is lost
+  while the screen opens.
+end note
 note bottom of SynchronousOrderEventPublisher
   Thread-safe: copy-on-write registrations (listeners may cancel during a dispatch),
   failing listener isolated, listeners run on the publishing thread

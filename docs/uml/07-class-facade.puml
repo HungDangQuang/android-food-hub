@@ -30,12 +30,14 @@ class OrderSummary <<data>> {
   +capabilities: OrderCapabilities
   +items: List<CartItem>
   +price: PriceBreakdown
+  +version: Int
 }
 
 abstract class CheckoutProcess
 class CancelOrderUseCase {
   -orders: OrderRepository
   -refunds: RefundExecutor
+  -inventory: InventoryService
   +execute(orderId: OrderId): CancellationResult
 }
 class RefundOrderUseCase {
@@ -47,6 +49,7 @@ class EditOrderItemsUseCase {
   -orders: OrderRepository
   -pricing: PricingService
   -regions: RegionRegistry
+  -inventory: InventoryService
   +execute(orderId: OrderId, newItems: List<CartItem>)
 }
 class ExportInvoiceUseCase {
@@ -68,12 +71,16 @@ class OrderLifecycleService <<Restaurant/Courier stand-in>> {
   +markDelivered(id: OrderId)
 }
 interface OrderRepository
+interface InventoryService
 interface OrderEventPublisher
 class RegionRegistry
 class PricingService
 
 class CheckoutViewModel
 class OrderTrackingViewModel
+class InvoiceViewModel
+class SimulatorViewModel
+class PromoAnnouncer
 
 DefaultOrderFacade ..|> OrderFacade
 DefaultOrderFacade --> "3" CheckoutProcess : by OrderType
@@ -95,13 +102,20 @@ EditOrderItemsUseCase --> "1" PricingService
 EditOrderItemsUseCase --> "1" RegionRegistry
 RefundExecutor --> "1" RegionRegistry
 OrderLifecycleService --> "1" OrderRepository
+CancelOrderUseCase --> "1" InventoryService
+EditOrderItemsUseCase --> "1" InventoryService
 
 CheckoutViewModel --> "1" OrderFacade
 OrderTrackingViewModel --> "1" OrderFacade
+InvoiceViewModel --> "1" OrderFacade
+SimulatorViewModel --> "1" OrderLifecycleService
+SimulatorViewModel --> "1" PromoAnnouncer
 
 note right of DefaultOrderFacade
   Pure delegation: routes to the right flow or use case, holds no business rules.
   It has no reference to Inventory, Pricing, Payment or Notification,
   so the ViewModels do not know them either.
+  Stock is touched only inside the use cases (cancel releases it,
+  edit swaps it all-or-nothing).
 end note
 @enduml

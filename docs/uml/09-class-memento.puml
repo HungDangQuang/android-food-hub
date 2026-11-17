@@ -16,6 +16,14 @@ class Cart <<Originator>> {
   +createSnapshot(): CartSnapshot
   +restore(snapshot: CartSnapshot)
 }
+interface CartSnapshotCodec {
+  +encode(snapshot: CartSnapshot): String
+  +decode(text: String): CartSnapshot
+}
+class SnapshotCodec <<companion object of Cart>> {
+  +encode(snapshot: CartSnapshot): String
+  +decode(text: String): CartSnapshot
+}
 interface CartSnapshot <<Memento (narrow interface)>> {
   +takenAt: Instant
 }
@@ -39,25 +47,38 @@ interface CartDraftRepository {
 class InMemoryCartDraftRepository {
   -drafts: ConcurrentHashMap<String, CartSnapshot>
 }
+class FileCartDraftRepository {
+  -directory: File
+  -codec: CartSnapshotCodec
+}
 class CartEditor {
   +cart: Cart
   -history: CartHistory
   -drafts: CartDraftRepository
   -customerId: String
+  {field} -listeners: List<() -> Unit>
   +canUndo: Boolean
+  +hasDraft: Boolean
   +add(item: MenuItem, quantity: Int)
   +remove(itemId: String)
   +setQuantity(itemId: String, quantity: Int)
   +clear()
   +undo(): Boolean
   +restoreDraft(): Boolean
+  +completeCheckout()
+  +observe(listener: () -> Unit): Subscription
   -mutate(change: () -> Unit)
+  -saveDraft()
 }
 class CartItem <<data>>
 class MenuItem <<data>>
 class CartViewModel {
   -editor: CartEditor
   -menu: MenuRepository
+  -subscription: Subscription
+}
+class CheckoutViewModel {
+  -cart: CartEditor
 }
 
 Cart *-- "0..*" CartItem : lines
@@ -70,10 +91,16 @@ CartHistory o--> "0..capacity" CartSnapshot
 InMemoryCartDraftRepository ..|> CartDraftRepository
 CartDraftRepository ..> CartSnapshot
 InMemoryCartDraftRepository o--> "0..*" CartSnapshot : one per customer
+FileCartDraftRepository ..|> CartDraftRepository
+FileCartDraftRepository --> "1" CartSnapshotCodec : codec
+SnapshotCodec ..|> CartSnapshotCodec
+Cart +-- SnapshotCodec
+SnapshotCodec ..> Memento : encodes / decodes
 CartEditor --> "1" Cart
 CartEditor --> "1" CartHistory
 CartEditor --> "1" CartDraftRepository
-CartViewModel --> "1" CartEditor
+CartViewModel --> "1" CartEditor : observes
+CheckoutViewModel --> "1" CartEditor : completeCheckout()
 
 note bottom of Memento
   Private to Cart: only Cart can create or read it, so encapsulation is kept.
@@ -81,5 +108,14 @@ note bottom of Memento
 end note
 note right of CartHistory
   When full, the oldest backup is discarded.
+end note
+note bottom of FileCartDraftRepository
+  One file per customer in the app's private dir (write temp file, then rename),
+  so the draft survives the process being killed. It stores the codec's text
+  without understanding it; a damaged file counts as no draft.
+end note
+note right of CartEditor
+  An empty cart clears the draft instead of saving it.
+  completeCheckout(): empty cart, no history, no draft.
 end note
 @enduml

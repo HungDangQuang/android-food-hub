@@ -39,7 +39,7 @@ class RefundReceipt <<data>> {
   +transactionId: String
   +refundedAmount: Money
 }
-class SentMessage <<data>> {
+class SentNotification <<data>> {
   +channel: ChannelType
   +to: String
   +title: String

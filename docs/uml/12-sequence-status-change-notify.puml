@@ -3,6 +3,7 @@ title Sequence 2 - Order status change -> observers (UI, notification, analytics
 skinparam shadowing false
 skinparam sequenceMessageAlign left
 
+participant "SimulatorViewModel" as Sim
 participant "OrderLifecycleService\n(Restaurant app stand-in)" as Lifecycle
 participant "OrderRepository" as Repo
 participant "Order" as Order
@@ -16,6 +17,7 @@ participant "Notification\n(OrderUpdateNotification)" as Notification
 participant "NotificationChannel\n(Push / SMS / Email)" as Channel
 participant "OrderStatusCounter" as Counter
 
+Sim -> Lifecycle : confirm(orderId)   [button on the demo screen]
 Lifecycle -> Repo : findById(id)
 Repo --> Lifecycle : Order
 Lifecycle -> Order : confirm()
@@ -39,7 +41,7 @@ note over Order : lock released BEFORE publishing
 Order -> Publisher : publish(OrderStatusChanged)
 
 Publisher -> VM : onOrderStatusChanged(event)
-VM -> VM : uiState.value = OrderTrackingUiState.from(event)
+VM -> VM : applyEvent(event)\n[kept only if event.version >= state.version]
 VM --> View : StateFlow emits (collected on the main thread)
 
 Publisher -> NL : onOrderStatusChanged(event)
@@ -56,6 +58,7 @@ Counter -> Counter : count(CONFIRMED)++
 
 Order --> Lifecycle : done
 Lifecycle -> Repo : save(order)
+Lifecycle --> Sim : ok (or IllegalOrderOperationException -> uiState.error)
 note over Publisher
   A failing listener is isolated (the others still run).
   OrderTrackingViewModel cancels its Subscription in onCleared().

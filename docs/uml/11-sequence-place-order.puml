@@ -5,6 +5,8 @@ skinparam sequenceMessageAlign left
 
 participant "View\n(OrderingScreen)" as View
 participant "CheckoutViewModel" as VM
+participant "MenuRepository" as Menu
+participant "CartEditor" as Cart
 participant "DefaultOrderFacade" as Facade
 participant "DeliveryCheckout\n(CheckoutProcess)" as Checkout
 participant "RegionRegistry" as Registry
@@ -17,7 +19,12 @@ participant "Order" as Order
 participant "OrderRepository" as Repo
 participant "CustomerNotifier\n(MultiChannelNotifier)" as Notifier
 
-View -> VM : submit(request)
+View -> VM : submit(CheckoutForm)
+VM -> Cart : cart.items
+Cart --> VM : List<CartItem>
+VM -> Menu : regionOf(restaurantId)
+Menu --> VM : "VN"
+note right of VM : builds CheckoutRequest:\nregion from the restaurant,\nscheduledAt = clock.instant() + scheduleIn
 VM -> Facade : checkout(request)
 Facade -> Checkout : checkout(request)\n[checkouts[request.type]]
 Checkout -> Registry : forRegion(request.regionCode)
@@ -66,5 +73,8 @@ end
 
 Checkout --> Facade : OrderConfirmation
 Facade --> VM : OrderConfirmation
+VM -> Cart : completeCheckout()
+note right of Cart : empties cart, undo history and draft;\nCartViewModel observes the editor and refreshes
 VM --> View : uiState = Success(confirmation)
+View -> VM : acknowledge()   [after navigating to the order]
 @enduml
