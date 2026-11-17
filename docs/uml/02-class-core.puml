@@ -1,0 +1,214 @@
+@startuml 02-class-core
+title FoodHub - Core domain model (entities, value objects, repository interfaces)
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+class Order {
+  +id: OrderId
+  +customer: Customer
+  +restaurantId: String
+  +type: OrderType
+  +region: Region
+  +paymentMethod: PaymentMethod
+  +deliveryAddress: Address?
+  +scheduledAt: Instant?
+  +promo: PromoCode?
+  +receipt: PaymentReceipt
+  +items: List<CartItem>
+  +price: PriceBreakdown
+  +amountPaid: Money
+  +deliveredAt: Instant?
+  +rating: Int?
+  +refundRequested: Boolean
+  -state: OrderState
+  -lock: Any
+  -pending: List<OrderStatusChanged>
+  -transitions: List<StatusTransition>
+  +status: OrderStatus
+  +capabilities: OrderCapabilities
+  +history: List<StatusTransition>
+  +confirm()
+  +startPreparing()
+  +startDelivery()
+  +markDelivered()
+  +cancel(): CancellationResult
+  +editItems(newItems: List<CartItem>, newPrice: PriceBreakdown)
+  +requestRefund(): Money
+  +rate(stars: Int)
+  -operate(block): T
+}
+
+class Customer <<data>> {
+  +id: String
+  +name: String
+  +phone: String
+  +email: String
+  +channels: Set<ChannelType>
+}
+class Address <<data>> {
+  +line: String
+}
+class MenuItem <<data>> {
+  +id: String
+  +restaurantId: String
+  +name: String
+  +price: Money
+}
+class CartItem <<data>> {
+  +item: MenuItem
+  +quantity: Int
+  +lineTotal: Money
+}
+class Money {
+  +amount: BigDecimal
+  +currency: Currency
+  +isZero: Boolean
+  +isPositive: Boolean
+  +plus(other: Money): Money
+  +minus(other: Money): Money
+  +times(quantity: Int): Money
+  +percent(rate: BigDecimal): Money
+  +percent(rate: Int): Money
+  +compareTo(other: Money): Int
+  {static} +zero(currency: Currency): Money
+  {static} +of(amount: String, currency: Currency): Money
+  {static} +of(amount: Long, currency: Currency): Money
+}
+class Currency <<data>> {
+  +code: String
+  +fractionDigits: Int
+  {static} +VND: Currency
+  {static} +USD: Currency
+}
+class OrderId <<value>> {
+  +value: String
+}
+class ChannelType <<value>> {
+  +id: String
+  {static} +PUSH: ChannelType
+  {static} +SMS: ChannelType
+  {static} +EMAIL: ChannelType
+}
+enum OrderType {
+  DELIVERY
+  PICKUP
+  SCHEDULED
+  +requiresCourier: Boolean
+}
+enum OrderStatus {
+  CREATED
+  CONFIRMED
+  PREPARING
+  DELIVERING
+  DELIVERED
+  CANCELLED
+  +customerMessage: String
+  +urgent: Boolean
+}
+class StatusTransition <<data>> {
+  +from: OrderStatus
+  +to: OrderStatus
+  +at: Instant
+}
+class Region <<data>> {
+  +code: String
+  +currency: Currency
+  +standardDeliveryFee: Money
+}
+class PaymentReceipt <<data>> {
+  +transactionId: String
+  +method: PaymentMethod
+  +amount: Money
+  +collected: Boolean
+}
+enum PaymentMethod {
+  CARD
+  WALLET
+  COD
+}
+class PriceBreakdown <<data>> {
+  +subtotal: Money
+  +discount: Money
+  +deliveryFee: Money
+  +tax: Money
+  +total: Money
+}
+class PromoCode <<data>> {
+  +code: String
+  +percentOff: Int
+}
+class OrderState
+class OrderStatusChanged
+
+interface OrderRepository {
+  +save(order: Order)
+  +findById(id: OrderId): Order?
+}
+interface MenuRepository {
+  +restaurantIds(): List<String>
+  +findItem(itemId: String): MenuItem?
+  +itemsOf(restaurantId: String): List<MenuItem>
+}
+interface InventoryService {
+  +isAvailable(itemId: String, quantity: Int): Boolean
+  +reserve(items: List<CartItem>)
+  +release(items: List<CartItem>)
+}
+interface PromoCatalog {
+  +find(code: String): PromoCode?
+}
+interface IdGenerator {
+  +next(): String
+}
+
+class InMemoryOrderRepository
+class InMemoryMenuRepository
+class SimulatedInventoryService
+class InMemoryPromoCatalog
+class SequentialIdGenerator
+
+Order *-- "1..*" CartItem : items
+Order "*" o-- "1" Customer : customer
+Order "*" --> "1" Region
+Order --> "0..1" Address : deliveryAddress
+Order --> "0..1" PromoCode : promo
+Order *-- "1" PaymentReceipt
+Order *-- "1" PriceBreakdown
+Order *-- "0..*" StatusTransition : transitions
+Order --> "1" OrderState : state
+Order --> "1" OrderId
+Order --> "1" OrderType
+Order --> "1" PaymentMethod
+Order ..> OrderStatus
+Order ..> OrderStatusChanged : creates
+CartItem "*" --> "1" MenuItem
+MenuItem *-- "1" Money : price
+Money --> "1" Currency
+Region --> "1" Currency
+Region *-- "1" Money : standardDeliveryFee
+PriceBreakdown *-- "5" Money
+PaymentReceipt *-- "1" Money
+StatusTransition --> OrderStatus
+Customer --> "0..*" ChannelType
+
+OrderRepository ..> Order
+InventoryService ..> CartItem
+MenuRepository ..> MenuItem
+
+InMemoryOrderRepository ..|> OrderRepository
+InMemoryMenuRepository ..|> MenuRepository
+SimulatedInventoryService ..|> InventoryService
+InMemoryPromoCatalog ..|> PromoCatalog
+SequentialIdGenerator ..|> IdGenerator
+
+note right of Order
+  Aggregate root and State context.
+  Behaviour methods delegate to `state`; events are published
+  after the internal lock is released.
+end note
+note bottom of OrderRepository
+  Interfaces live in the domain layer,
+  implementations (InMemory*, Simulated*) in the data layer.
+end note
+@enduml

@@ -1,0 +1,63 @@
+@startuml 12-sequence-status-change-notify
+title Sequence 2 - Order status change -> observers (UI, notification, analytics)
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+
+participant "OrderLifecycleService\n(Restaurant app stand-in)" as Lifecycle
+participant "OrderRepository" as Repo
+participant "Order" as Order
+participant "OrderState\n(CreatedState)" as State
+participant "SynchronousOrderEventPublisher" as Publisher
+participant "OrderTrackingViewModel\n(listener)" as VM
+participant "View" as View
+participant "NotificationOrderListener" as NL
+participant "MultiChannelNotifier" as Notifier
+participant "Notification\n(OrderUpdateNotification)" as Notification
+participant "NotificationChannel\n(Push / SMS / Email)" as Channel
+participant "OrderStatusCounter" as Counter
+
+Lifecycle -> Repo : findById(id)
+Repo --> Lifecycle : Order
+Lifecycle -> Order : confirm()
+
+group inside Order.operate(), holding the order lock
+  Order -> State : confirm(context)
+  alt operation allowed in this state
+    State -> Order : context.transitionTo(ConfirmedState)
+    note right of Order
+      records StatusTransition,
+      calls next.onEnter(context),
+      adds OrderStatusChanged to `pending`
+    end note
+  else operation not allowed in this state
+    State --> Order : throws IllegalOrderOperationException
+    Order --> Lifecycle : exception (no state change, no event)
+  end
+end
+note over Order : lock released BEFORE publishing
+
+Order -> Publisher : publish(OrderStatusChanged)
+
+Publisher -> VM : onOrderStatusChanged(event)
+VM -> VM : uiState.value = OrderTrackingUiState.from(event)
+VM --> View : StateFlow emits (collected on the main thread)
+
+Publisher -> NL : onOrderStatusChanged(event)
+NL -> Notifier : notifyOrderUpdate(customer, orderId, status.customerMessage)
+note right of NL : notifyUrgent(...) instead when event.current.urgent\n(only CANCELLED); the listener never compares statuses
+loop each channel the customer opted into
+  Notifier -> Notification : <<create>> OrderUpdateNotification(channel, orderId, text)
+  Notifier -> Notification : send(customer)
+  Notification -> Channel : deliver(recipient, buildMessage())
+end
+
+Publisher -> Counter : onOrderStatusChanged(event)
+Counter -> Counter : count(CONFIRMED)++
+
+Order --> Lifecycle : done
+Lifecycle -> Repo : save(order)
+note over Publisher
+  A failing listener is isolated (the others still run).
+  OrderTrackingViewModel cancels its Subscription in onCleared().
+end note
+@enduml

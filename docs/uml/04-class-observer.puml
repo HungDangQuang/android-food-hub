@@ -1,0 +1,80 @@
+@startuml 04-class-observer
+title C2 - Observer pattern: real-time order tracking
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+interface OrderEventPublisher <<Subject>> {
+  +publish(event: OrderStatusChanged)
+  +subscribe(listener: OrderStatusListener, orderId: OrderId?): Subscription
+}
+interface OrderStatusListener <<Observer>> {
+  +onOrderStatusChanged(event: OrderStatusChanged)
+}
+interface Subscription {
+  +isActive: Boolean
+  +cancel()
+}
+class OrderStatusChanged <<data>> {
+  +orderId: OrderId
+  +customer: Customer
+  +previous: OrderStatus
+  +current: OrderStatus
+  +capabilities: OrderCapabilities
+  +occurredAt: Instant
+}
+class SynchronousOrderEventPublisher {
+  -onListenerFailure: (OrderStatusListener, Exception) -> Unit
+  -registrations: CopyOnWriteArrayList<Registration>
+  +publish(event: OrderStatusChanged)
+  +subscribe(listener: OrderStatusListener, orderId: OrderId?): Subscription
+}
+class Registration <<private nested>> {
+  +listener: OrderStatusListener
+  +orderId: OrderId?
+  +active: AtomicBoolean
+}
+class Order {
+  -publisher: OrderEventPublisher
+  -pending: List<OrderStatusChanged>
+}
+
+class NotificationOrderListener {
+  -notifier: CustomerNotifier
+  +onOrderStatusChanged(event: OrderStatusChanged)
+}
+class OrderStatusCounter {
+  -counts: ConcurrentHashMap<OrderStatus, AtomicInteger>
+  +onOrderStatusChanged(event: OrderStatusChanged)
+  +count(status: OrderStatus): Int
+}
+class OrderTrackingViewModel {
+  -subscription: Subscription
+  +uiState: StateFlow<OrderTrackingUiState>
+  +onCleared()
+}
+interface CustomerNotifier
+
+SynchronousOrderEventPublisher ..|> OrderEventPublisher
+SynchronousOrderEventPublisher *-- "0..*" Registration
+Registration --> "1" OrderStatusListener
+OrderEventPublisher ..> OrderStatusListener : notifies
+OrderEventPublisher ..> Subscription : returns
+OrderEventPublisher ..> OrderStatusChanged
+OrderStatusListener ..> OrderStatusChanged
+
+Order --> "1" OrderEventPublisher : publisher
+Order ..> OrderStatusChanged : creates, publishes after lock release
+
+NotificationOrderListener ..|> OrderStatusListener
+OrderStatusCounter ..|> OrderStatusListener
+OrderTrackingViewModel ..> OrderStatusListener : registers a listener
+OrderTrackingViewModel --> "1" Subscription : cancels in onCleared
+NotificationOrderListener --> "1" CustomerNotifier
+
+note bottom of SynchronousOrderEventPublisher
+  Thread-safe: copy-on-write registrations (listeners may cancel during a dispatch),
+  failing listener isolated, listeners run on the publishing thread
+  (the ViewModel hands over to a thread-safe StateFlow).
+end note
+@enduml

@@ -1,0 +1,107 @@
+@startuml 07-class-facade
+title C7 - Facade: single entry point for the ViewModels
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+interface OrderFacade <<Facade>> {
+  +checkout(request: CheckoutRequest): OrderConfirmation
+  +cancelOrder(orderId: OrderId): CancellationResult
+  +requestRefund(orderId: OrderId): Money
+  +editOrderItems(orderId: OrderId, newItems: List<CartItem>)
+  +rateOrder(orderId: OrderId, stars: Int)
+  +getOrder(orderId: OrderId): OrderSummary
+  +exportInvoice(orderId: OrderId, format: InvoiceFormat): String
+  +track(orderId: OrderId, listener: OrderStatusListener): Subscription
+}
+class DefaultOrderFacade {
+  -checkouts: Map<OrderType, CheckoutProcess>
+  -cancelOrder: CancelOrderUseCase
+  -refundOrder: RefundOrderUseCase
+  -editOrder: EditOrderItemsUseCase
+  -invoices: ExportInvoiceUseCase
+  -orders: OrderRepository
+  -events: OrderEventPublisher
+}
+class OrderSummary <<data>> {
+  +id: OrderId
+  +type: OrderType
+  +status: OrderStatus
+  +capabilities: OrderCapabilities
+  +items: List<CartItem>
+  +price: PriceBreakdown
+}
+
+abstract class CheckoutProcess
+class CancelOrderUseCase {
+  -orders: OrderRepository
+  -refunds: RefundExecutor
+  +execute(orderId: OrderId): CancellationResult
+}
+class RefundOrderUseCase {
+  -orders: OrderRepository
+  -refunds: RefundExecutor
+  +execute(orderId: OrderId): Money
+}
+class EditOrderItemsUseCase {
+  -orders: OrderRepository
+  -pricing: PricingService
+  -regions: RegionRegistry
+  +execute(orderId: OrderId, newItems: List<CartItem>)
+}
+class ExportInvoiceUseCase {
+  -orders: OrderRepository
+  -regions: RegionRegistry
+  -clock: Clock
+  +execute(orderId: OrderId, format: InvoiceFormat): String
+}
+class RefundExecutor {
+  -regions: RegionRegistry
+  +refundableProcessorFor(order: Order): Refundable?
+  +refund(order: Order, amount: Money): RefundReceipt
+}
+class OrderLifecycleService <<Restaurant/Courier stand-in>> {
+  -orders: OrderRepository
+  +confirm(id: OrderId)
+  +startPreparing(id: OrderId)
+  +startDelivery(id: OrderId)
+  +markDelivered(id: OrderId)
+}
+interface OrderRepository
+interface OrderEventPublisher
+class RegionRegistry
+class PricingService
+
+class CheckoutViewModel
+class OrderTrackingViewModel
+
+DefaultOrderFacade ..|> OrderFacade
+DefaultOrderFacade --> "3" CheckoutProcess : by OrderType
+DefaultOrderFacade --> "1" CancelOrderUseCase
+DefaultOrderFacade --> "1" RefundOrderUseCase
+DefaultOrderFacade --> "1" EditOrderItemsUseCase
+DefaultOrderFacade --> "1" ExportInvoiceUseCase
+ExportInvoiceUseCase --> "1" OrderRepository
+ExportInvoiceUseCase --> "1" RegionRegistry
+DefaultOrderFacade --> "1" OrderRepository
+DefaultOrderFacade --> "1" OrderEventPublisher
+DefaultOrderFacade ..> OrderSummary : creates
+CancelOrderUseCase --> "1" RefundExecutor
+RefundOrderUseCase --> "1" RefundExecutor
+CancelOrderUseCase --> "1" OrderRepository
+RefundOrderUseCase --> "1" OrderRepository
+EditOrderItemsUseCase --> "1" OrderRepository
+EditOrderItemsUseCase --> "1" PricingService
+EditOrderItemsUseCase --> "1" RegionRegistry
+RefundExecutor --> "1" RegionRegistry
+OrderLifecycleService --> "1" OrderRepository
+
+CheckoutViewModel --> "1" OrderFacade
+OrderTrackingViewModel --> "1" OrderFacade
+
+note right of DefaultOrderFacade
+  Pure delegation: routes to the right flow or use case, holds no business rules.
+  It has no reference to Inventory, Pricing, Payment or Notification,
+  so the ViewModels do not know them either.
+end note
+@enduml

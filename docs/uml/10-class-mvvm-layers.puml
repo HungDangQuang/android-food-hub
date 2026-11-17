@@ -1,0 +1,235 @@
+@startuml 10-class-mvvm-layers
+title MVVM layering and dependency direction: Presentation -> Domain <- Data
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+package "View (module :app, Android + Jetpack Compose)" as ViewPkg {
+  class MainActivity <<Activity>>
+  class FoodHubApplication <<Application>> {
+    +container: AppContainer
+    +customer: Customer
+  }
+  class OrderingScreen <<Composable>>
+  class OrderTrackingScreen <<Composable>>
+  class OrderingViewModels <<androidx ViewModel>> {
+    +menu: MenuViewModel
+    +cart: CartViewModel
+    +checkout: CheckoutViewModel
+    +onCleared()
+  }
+  class OrderScreenViewModels <<androidx ViewModel>> {
+    +bind(orderId: OrderId)
+    +release()
+    +onCleared()
+  }
+}
+
+package "Console demo (module :core, com.nemis.foodhub.app)" as ConsolePkg {
+  class MainKt <<console View>> {
+    {static} +main()
+  }
+}
+
+package "Presentation (com.nemis.foodhub.presentation, no android.*)" as PresPkg {
+  abstract class BaseViewModel {
+    +onCleared()
+  }
+  class CartViewModel {
+    -editor: CartEditor
+    -menu: MenuRepository
+    +uiState: StateFlow<CartUiState>
+    +items: List<CartItem>
+    +addItem(itemId: String, quantity: Int)
+    +removeItem(itemId: String)
+    +setQuantity(itemId: String, quantity: Int)
+    +undo()
+    +restoreDraft()
+    -run(action: () -> Unit)
+    -snapshot(): CartUiState
+  }
+  class CheckoutViewModel {
+    -facade: OrderFacade
+    +uiState: StateFlow<CheckoutUiState>
+    +submit(request: CheckoutRequest)
+  }
+  class MenuViewModel {
+    -menu: MenuRepository
+    +uiState: StateFlow<MenuUiState>
+    +showRestaurant(restaurantId: String)
+  }
+  class InvoiceViewModel {
+    -facade: OrderFacade
+    -orderId: OrderId
+    +uiState: StateFlow<InvoiceUiState>
+    +export(format: InvoiceFormat)
+  }
+  class OrderTrackingViewModel {
+    -facade: OrderFacade
+    -orderId: OrderId
+    -subscription: Subscription
+    +uiState: StateFlow<OrderTrackingUiState>
+    +cancel()
+    +editItems(newItems: List<CartItem>)
+    +requestRefund()
+    +rate(stars: Int)
+    -guarded(action: () -> Unit)
+    +onCleared()
+  }
+  class MenuUiState <<data>> {
+    +restaurantIds: List<String>
+    +selectedRestaurantId: String?
+    +items: List<MenuItemUi>
+  }
+  class MenuItemUi <<data>> {
+    +id: String
+    +name: String
+    +price: Money
+  }
+  interface InvoiceUiState <<sealed>>
+  class CartUiState <<data>> {
+    +lines: List<CartLineUi>
+    +canUndo: Boolean
+    +error: String?
+  }
+  class CartLineUi <<data>> {
+    +itemId: String
+    +name: String
+    +quantity: Int
+    +lineTotal: Money
+  }
+  interface CheckoutUiState <<sealed>>
+  class "CheckoutUiState.Idle" as Idle
+  class "CheckoutUiState.Success" as Success {
+    +confirmation: OrderConfirmation
+  }
+  class "CheckoutUiState.Failed" as Failed {
+    +message: String
+  }
+  class OrderTrackingUiState <<data>> {
+    +status: OrderStatus
+    +message: String
+    +canEditItems: Boolean
+    +canCancel: Boolean
+    +cancellationFeePercent: Int
+    +canRequestRefund: Boolean
+    +canRate: Boolean
+    +canTrackCourier: Boolean
+    +error: String?
+  }
+}
+
+package "Domain (com.nemis.foodhub.domain, pure JVM)" as DomPkg {
+  interface OrderFacade
+  class CartEditor
+  interface MenuRepository
+  interface OrderRepository
+  interface InventoryService
+  interface CartDraftRepository
+  interface PromoCatalog
+  interface IdGenerator
+  interface NotificationChannel
+  interface OrderEventPublisher
+  class Order
+}
+
+package "Data (com.nemis.foodhub.data)" as DataPkg {
+  class InMemoryOrderRepository
+  class InMemoryMenuRepository
+  class SimulatedInventoryService
+  class InMemoryCartDraftRepository
+  class InMemoryPromoCatalog
+  class SequentialIdGenerator
+  class PushChannel
+  class SmsChannel
+  class EmailChannel
+}
+
+package "Composition root (com.nemis.foodhub.app)" as AppPkg {
+  class AppContainer {
+    +clock: Clock
+    +sentMessages: SentMessageLog
+    +statusCounter: OrderStatusCounter
+    +inventory: SimulatedInventoryService
+    +orders: InMemoryOrderRepository
+    +menu: InMemoryMenuRepository
+    +drafts: InMemoryCartDraftRepository
+    +events: OrderEventPublisher
+    +services: CheckoutServices
+    +facade: OrderFacade
+    +lifecycle: OrderLifecycleService
+    +promoAnnouncer: PromoAnnouncer
+    +newCartEditor(customerId: String): CartEditor
+    +newMenuViewModel(): MenuViewModel
+    +newInvoiceViewModel(orderId: OrderId): InvoiceViewModel
+    +newCartViewModel(editor: CartEditor): CartViewModel
+    +newCheckoutViewModel(): CheckoutViewModel
+    +newOrderTrackingViewModel(orderId: OrderId): OrderTrackingViewModel
+  }
+}
+
+CartViewModel --|> BaseViewModel
+MenuViewModel --|> BaseViewModel
+InvoiceViewModel --|> BaseViewModel
+CheckoutViewModel --|> BaseViewModel
+OrderTrackingViewModel --|> BaseViewModel
+Idle ..|> CheckoutUiState
+Success ..|> CheckoutUiState
+Failed ..|> CheckoutUiState
+
+FoodHubApplication --> "1" AppContainer : creates
+MainActivity ..> OrderingScreen
+MainActivity ..> OrderTrackingScreen
+MainActivity ..> OrderingViewModels : viewModel { }
+MainActivity ..> OrderScreenViewModels : viewModel { }
+OrderingViewModels --> "1" MenuViewModel : onCleared() forwards
+OrderingViewModels --> "1" CartViewModel
+OrderingViewModels --> "1" CheckoutViewModel
+OrderScreenViewModels --> "0..1" OrderTrackingViewModel : onCleared() forwards
+OrderScreenViewModels --> "0..1" InvoiceViewModel
+OrderingScreen ..> MenuUiState : collects
+OrderingScreen ..> CartUiState : collects
+OrderingScreen ..> CheckoutUiState : collects
+OrderTrackingScreen ..> OrderTrackingUiState : collects
+OrderTrackingScreen ..> InvoiceUiState : collects
+MainKt ..> CartViewModel : console demo (./gradlew :core:run)
+MainKt ..> AppContainer : creates
+
+CartViewModel --> "1" CartEditor
+CartViewModel --> "1" MenuRepository
+CartViewModel ..> CartUiState : exposes
+CartUiState *-- "0..*" CartLineUi
+MenuViewModel --> "1" MenuRepository
+MenuViewModel ..> MenuUiState : exposes
+MenuUiState *-- "0..*" MenuItemUi
+InvoiceViewModel --> "1" OrderFacade
+InvoiceViewModel ..> InvoiceUiState : exposes
+CheckoutViewModel --> "1" OrderFacade
+CheckoutViewModel ..> CheckoutUiState : exposes
+OrderTrackingViewModel --> "1" OrderFacade
+OrderTrackingViewModel ..> OrderTrackingUiState : exposes
+
+InMemoryOrderRepository ..|> OrderRepository
+InMemoryMenuRepository ..|> MenuRepository
+SimulatedInventoryService ..|> InventoryService
+InMemoryCartDraftRepository ..|> CartDraftRepository
+InMemoryPromoCatalog ..|> PromoCatalog
+SequentialIdGenerator ..|> IdGenerator
+PushChannel ..|> NotificationChannel
+SmsChannel ..|> NotificationChannel
+EmailChannel ..|> NotificationChannel
+
+AppContainer ..> PresPkg : creates
+AppContainer ..> DataPkg : creates and injects
+AppContainer ..> DomPkg : wires
+
+note bottom of PresPkg
+  ViewModels hold no View or Context and no business rules; they expose StateFlow
+  (thread-safe, so domain events from any thread are safe).
+  On Android they are wrapped by OrderingViewModels / OrderScreenViewModels (androidx ViewModel), which forward the framework onCleared() to BaseViewModel.onCleared().
+end note
+note bottom of DomPkg
+  Repository interfaces are declared here (DIP). Domain imports nothing from
+  Presentation, Data, App or android.* (enforced by ArchitectureTest).
+end note
+@enduml

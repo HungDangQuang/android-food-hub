@@ -1,0 +1,78 @@
+@startuml 01-use-case
+title FoodHub - Use case diagram (Customer app core)
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+actor Customer
+actor Restaurant
+actor Courier
+actor Admin
+
+rectangle "FoodHub order core" {
+  usecase "Browse menu" as UC_MENU
+  usecase "Manage cart\n(add / remove / change quantity)" as UC_CART
+  usecase "Undo cart change" as UC_UNDO
+  usecase "Restore cart draft\n(after app was killed)" as UC_DRAFT
+  usecase "Apply promo code" as UC_PROMO
+  usecase "Checkout order\n(delivery / pickup / scheduled)" as UC_CHECKOUT
+  usecase "Pay\n(card / e-wallet / COD)" as UC_PAY
+  usecase "Track order status\nin real time" as UC_TRACK
+  usecase "Edit order items\n(only while CREATED)" as UC_EDIT
+  usecase "Cancel order" as UC_CANCEL
+  usecase "Refund payment" as UC_REFUND_PAY
+  usecase "Request refund\n(within 24h after delivery)" as UC_REFUND
+  usecase "Rate order" as UC_RATE
+  usecase "Export invoice\n(HTML / CSV)" as UC_INVOICE
+  usecase "Receive notification\n(push / SMS / email)" as UC_NOTIFY
+  usecase "Confirm order" as UC_CONFIRM
+  usecase "Prepare order" as UC_PREPARE
+  usecase "Deliver order" as UC_DELIVER
+  usecase "Manage promo codes\nand regions" as UC_ADMIN
+  usecase "Announce promotion" as UC_ANNOUNCE
+}
+
+Customer --> UC_MENU
+Customer --> UC_CART
+Customer --> UC_DRAFT
+Customer --> UC_CHECKOUT
+Customer --> UC_TRACK
+Customer --> UC_EDIT
+Customer --> UC_CANCEL
+Customer --> UC_REFUND
+Customer --> UC_RATE
+Customer --> UC_INVOICE
+Customer --> UC_NOTIFY
+
+Restaurant --> UC_CONFIRM
+Restaurant --> UC_PREPARE
+Courier --> UC_DELIVER
+Admin --> UC_ADMIN
+Admin --> UC_ANNOUNCE
+
+UC_UNDO .> UC_CART : <<extend>>
+UC_PROMO .> UC_CHECKOUT : <<extend>>
+UC_CHECKOUT .> UC_PAY : <<include>>
+UC_CANCEL .> UC_REFUND_PAY : <<include>>
+UC_REFUND .> UC_REFUND_PAY : <<include>>
+UC_CONFIRM .> UC_NOTIFY : <<include>>
+UC_PREPARE .> UC_NOTIFY : <<include>>
+UC_DELIVER .> UC_NOTIFY : <<include>>
+UC_ANNOUNCE .> UC_NOTIFY : <<include>>
+
+note bottom of UC_ADMIN
+  Admin tooling is outside the Customer app.
+  In the code, promo codes come from PromoCatalog and
+  regions from RegionRegistry (configured at startup);
+  PromoAnnouncer stands in for "Announce promotion".
+end note
+note bottom of UC_TRACK
+  Tracking is not a step of the Restaurant/Courier use cases: it reacts
+  to every status change through the Observer (OrderEventPublisher).
+end note
+note bottom of UC_CONFIRM
+  Restaurant and Courier apps are simulated by
+  OrderLifecycleService (confirm, startPreparing,
+  startDelivery, markDelivered).
+end note
+@enduml

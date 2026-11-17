@@ -1,0 +1,98 @@
+@startuml 06-class-template-method
+title C4 - Template Method: checkout process
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+abstract class CheckoutProcess <<Abstract Class>> {
+  #services: CheckoutServices
+  +checkout(request: CheckoutRequest): OrderConfirmation
+  #validate(ctx: CheckoutContext)
+  #calculatePrice(ctx: CheckoutContext): PriceBreakdown
+  #pay(ctx: CheckoutContext, price: PriceBreakdown): PaymentReceipt
+  #confirm(ctx: CheckoutContext, price: PriceBreakdown, receipt: PaymentReceipt): Order
+  #notifyCustomer(order: Order)
+  #{abstract} validateTypeRules(ctx: CheckoutContext)
+  #deliveryFee(ctx: CheckoutContext): Money
+  #{abstract} placedMessage(order: Order): String
+  -refundQuietly(ctx: CheckoutContext, receipt: PaymentReceipt)
+}
+class DeliveryCheckout {
+  #validateTypeRules(ctx: CheckoutContext)
+  #deliveryFee(ctx: CheckoutContext): Money
+  #placedMessage(order: Order): String
+}
+class PickupCheckout {
+  #validateTypeRules(ctx: CheckoutContext)
+  #placedMessage(order: Order): String
+}
+class ScheduledCheckout {
+  #validateTypeRules(ctx: CheckoutContext)
+  #deliveryFee(ctx: CheckoutContext): Money
+  #placedMessage(order: Order): String
+  {static} +MIN_LEAD_TIME: Duration
+  {static} +MAX_LEAD_TIME: Duration
+}
+class CheckoutServices {
+  +regions: RegionRegistry
+  +pricing: PricingService
+  +promos: PromoCatalog
+  +inventory: InventoryService
+  +orders: OrderRepository
+  +events: OrderEventPublisher
+  +notifier: CustomerNotifier
+  +clock: Clock
+  +ids: IdGenerator
+}
+class CheckoutContext {
+  +request: CheckoutRequest
+  +factory: RegionFactory
+  +orderId: OrderId
+  +region: Region
+  +promo: PromoCode?
+}
+class CheckoutRequest <<data>> {
+  +customer: Customer
+  +items: List<CartItem>
+  +type: OrderType
+  +regionCode: String
+  +paymentMethod: PaymentMethod
+  +payerRef: String
+  +promoCode: String?
+  +deliveryAddress: Address?
+  +scheduledAt: Instant?
+}
+class OrderConfirmation <<data>> {
+  +orderId: OrderId
+  +status: OrderStatus
+  +capabilities: OrderCapabilities
+  +price: PriceBreakdown
+  +message: String
+}
+class Order
+class RegionFactory
+class PricingService {
+  +price(items, promo, deliveryFee, tax): PriceBreakdown
+}
+
+DeliveryCheckout --|> CheckoutProcess
+PickupCheckout --|> CheckoutProcess
+ScheduledCheckout --|> CheckoutProcess
+CheckoutProcess --> "1" CheckoutServices : services
+CheckoutProcess ..> CheckoutContext : creates per checkout
+CheckoutProcess ..> CheckoutRequest
+CheckoutProcess ..> OrderConfirmation : returns
+CheckoutProcess ..> Order : creates
+CheckoutContext --> "1" CheckoutRequest
+CheckoutContext --> "1" RegionFactory
+CheckoutServices --> "1" PricingService
+
+note right of CheckoutProcess
+  checkout() is the template method and is final:
+  1. validate  -> common checks, then validateTypeRules (hook)
+  2. calculatePrice -> uses deliveryFee (hook)
+  3. pay
+  4. confirm (reserve stock, create + save Order; compensates on failure)
+  5. notifyCustomer -> uses placedMessage (hook)
+end note
+@enduml

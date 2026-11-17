@@ -1,0 +1,70 @@
+@startuml 11-sequence-place-order
+title Sequence 1 - Place an order (delivery) through the Facade and the checkout template
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+
+participant "View\n(OrderingScreen)" as View
+participant "CheckoutViewModel" as VM
+participant "DefaultOrderFacade" as Facade
+participant "DeliveryCheckout\n(CheckoutProcess)" as Checkout
+participant "RegionRegistry" as Registry
+participant "RegionFactory\n(VietnamRegionFactory)" as Factory
+participant "InventoryService" as Inventory
+participant "PromoCatalog" as Promos
+participant "PricingService" as Pricing
+participant "PaymentProcessor" as Processor
+participant "Order" as Order
+participant "OrderRepository" as Repo
+participant "CustomerNotifier\n(MultiChannelNotifier)" as Notifier
+
+View -> VM : submit(request)
+VM -> Facade : checkout(request)
+Facade -> Checkout : checkout(request)\n[checkouts[request.type]]
+Checkout -> Registry : forRegion(request.regionCode)
+Registry --> Checkout : RegionFactory
+note right of Checkout : orderId = ids.next()
+
+group 1. validate
+  Checkout -> Inventory : isAvailable(itemId, quantity)   [each item]
+  Inventory --> Checkout : Boolean
+  opt request.promoCode != null
+    Checkout -> Promos : find(code)
+    Promos --> Checkout : PromoCode
+  end
+  Checkout -> Checkout : validateTypeRules(ctx)   [hook: address required]
+end
+
+group 2. calculatePrice
+  Checkout -> Factory : createTaxCalculator()
+  Factory --> Checkout : TaxCalculator
+  Checkout -> Pricing : price(items, promo, deliveryFee(ctx), tax)
+  Pricing --> Checkout : PriceBreakdown
+end
+
+group 3. pay
+  Checkout -> Factory : createPaymentProcessor(paymentMethod)
+  Factory --> Checkout : PaymentProcessor
+  Checkout -> Processor : pay(PaymentRequest)
+  alt payment declined
+    Processor --> Checkout : throws PaymentFailedException
+    Checkout --> Facade : exception (nothing saved, stock untouched)
+  else accepted
+    Processor --> Checkout : PaymentReceipt
+  end
+end
+
+group 4. confirm
+  Checkout -> Inventory : reserve(items)
+  Checkout -> Order : <<create>> Order(id, customer, ..., receipt, clock, publisher)
+  Checkout -> Repo : save(order)
+  note right of Repo : if reserve or save fails:\nrelease stock and refund the payment, then rethrow
+end
+
+group 5. notify
+  Checkout -> Notifier : notifyOrderUpdate(customer, orderId, placedMessage(order))
+end
+
+Checkout --> Facade : OrderConfirmation
+Facade --> VM : OrderConfirmation
+VM --> View : uiState = Success(confirmation)
+@enduml

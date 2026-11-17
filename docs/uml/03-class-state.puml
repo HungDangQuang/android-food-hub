@@ -1,0 +1,147 @@
+@startuml 03-class-state
+title C1 - State pattern: order lifecycle
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+class Order <<Context>> {
+  -state: OrderState
+  +status: OrderStatus
+  +capabilities: OrderCapabilities
+  +confirm()
+  +startPreparing()
+  +startDelivery()
+  +markDelivered()
+  +cancel(): CancellationResult
+  +editItems(newItems: List<CartItem>, newPrice: PriceBreakdown)
+  +requestRefund(): Money
+  +rate(stars: Int)
+}
+
+class Context <<inner of Order>> {
+  +type: OrderType
+  +amountPaid: Money
+  +paidOnline: Boolean
+  +deliveredAt: Instant?
+  +refundRequested: Boolean
+  +rated: Boolean
+  +now: Instant
+  +transitionTo(next: OrderState)
+  +replaceItems(items: List<CartItem>, price: PriceBreakdown)
+  +recordDelivery()
+  +markRefundRequested()
+  +recordRating(stars: Int)
+}
+
+interface OrderContext {
+  +type: OrderType
+  +amountPaid: Money
+  +paidOnline: Boolean
+  +deliveredAt: Instant?
+  +refundRequested: Boolean
+  +rated: Boolean
+  +now: Instant
+  +transitionTo(next: OrderState)
+  +replaceItems(items: List<CartItem>, price: PriceBreakdown)
+  +recordDelivery()
+  +markRefundRequested()
+  +recordRating(stars: Int)
+}
+
+abstract class OrderState {
+  +status: OrderStatus
+  +capabilities: OrderCapabilities
+  +capabilitiesFor(ctx: OrderContext): OrderCapabilities
+  +onEnter(ctx: OrderContext)
+  +confirm(ctx: OrderContext)
+  +startPreparing(ctx: OrderContext)
+  +startDelivery(ctx: OrderContext)
+  +markDelivered(ctx: OrderContext)
+  +cancel(ctx: OrderContext): CancellationResult
+  +editItems(ctx: OrderContext, items: List<CartItem>, price: PriceBreakdown)
+  +requestRefund(ctx: OrderContext): Money
+  +rate(ctx: OrderContext, stars: Int)
+  #reject(operation: String, reason: String?): Nothing
+}
+
+class CreatedState <<object>> {
+  +confirm(ctx)
+  +cancel(ctx): CancellationResult
+  +editItems(ctx, items, price)
+}
+class ConfirmedState <<object>> {
+  +startPreparing(ctx)
+  +cancel(ctx): CancellationResult
+}
+class PreparingState <<object>> {
+  +startDelivery(ctx)
+  +markDelivered(ctx)
+}
+class DeliveringState <<object>> {
+  +markDelivered(ctx)
+}
+class DeliveredState <<object>> {
+  +capabilitiesFor(ctx): OrderCapabilities
+  +onEnter(ctx)
+  +requestRefund(ctx): Money
+  +rate(ctx, stars: Int)
+}
+class CancelledState <<object>>
+
+class OrderCapabilities <<data>> {
+  +canEditItems: Boolean
+  +canCancel: Boolean
+  +cancellationFeePercent: Int
+  +canRequestRefund: Boolean
+  +canRate: Boolean
+  +canTrackCourier: Boolean
+}
+class CancellationResult <<data>> {
+  +fee: Money
+  +refund: Money
+}
+class IllegalOrderOperationException {
+  +status: OrderStatus
+  +operation: String
+}
+class RefundWindowExpiredException
+class ValidationException
+
+Order "1" o--> "1" OrderState : state
+Order +-- Context
+Context ..|> OrderContext
+OrderState ..> OrderContext : uses
+OrderState --> "1" OrderCapabilities
+OrderState ..> CancellationResult : creates
+OrderState ..> IllegalOrderOperationException : throws
+
+CreatedState --|> OrderState
+ConfirmedState --|> OrderState
+PreparingState --|> OrderState
+DeliveringState --|> OrderState
+DeliveredState --|> OrderState
+CancelledState --|> OrderState
+
+CreatedState ..> ConfirmedState : transitionTo
+CreatedState ..> CancelledState : transitionTo
+ConfirmedState ..> PreparingState : transitionTo
+ConfirmedState ..> CancelledState : transitionTo
+PreparingState ..> DeliveringState : transitionTo
+PreparingState ..> DeliveredState : transitionTo (pickup)
+DeliveringState ..> DeliveredState : transitionTo
+DeliveredState ..> RefundWindowExpiredException : throws
+DeliveredState ..> ValidationException : throws
+
+note bottom of OrderState
+  Every operation is rejected by default; a state overrides only what it allows.
+  LSP: an operation either performs its effect or throws
+  IllegalOrderOperationException, it never silently does nothing.
+end note
+note bottom of DeliveredState
+  capabilitiesFor refines the static rules with facts of this order: refund is offered only
+  when paid online, not yet requested and inside the 24h window; rating only once.
+end note
+note bottom of CancelledState
+  Concrete states are stateless, so one instance each is enough.
+end note
+@enduml

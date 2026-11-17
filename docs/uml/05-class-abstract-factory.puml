@@ -1,0 +1,117 @@
+@startuml 05-class-abstract-factory
+title C3 - Abstract Factory (+ Factory Method for PaymentProcessor): regional product families
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+abstract class RegionFactory <<Abstract Factory>> {
+  +region: Region
+  +createPaymentProcessor(method: PaymentMethod): PaymentProcessor
+  #{abstract} newPaymentProcessor(method: PaymentMethod): PaymentProcessor
+  +{abstract} createTaxCalculator(): TaxCalculator
+  +{abstract} createInvoiceFormatter(): InvoiceFormatter
+}
+class VietnamRegionFactory {
+  #newPaymentProcessor(method: PaymentMethod): PaymentProcessor
+  +createTaxCalculator(): TaxCalculator
+  +createInvoiceFormatter(): InvoiceFormatter
+  {static} +CODE: String
+  {static} +REGION: Region
+}
+class UsRegionFactory {
+  #newPaymentProcessor(method: PaymentMethod): PaymentProcessor
+  +createTaxCalculator(): TaxCalculator
+  +createInvoiceFormatter(): InvoiceFormatter
+  {static} +CODE: String
+  {static} +REGION: Region
+}
+class RegionRegistry {
+  -byCode: Map<String, RegionFactory>
+  +supportedCodes: Set<String>
+  +forRegion(code: String): RegionFactory
+}
+class Region <<data>> {
+  +code: String
+  +currency: Currency
+  +standardDeliveryFee: Money
+}
+
+interface Payable {
+  +pay(request: PaymentRequest): PaymentReceipt
+}
+interface Refundable {
+  +refund(receipt: PaymentReceipt, amount: Money): RefundReceipt
+}
+interface PaymentProcessor <<Product A>> {
+  +method: PaymentMethod
+  +currency: Currency
+}
+class SimulatedPaymentProcessor {
+  +method: PaymentMethod
+  +currency: Currency
+  #gateway: String
+  -collectsAtCheckout: Boolean
+  +pay(request: PaymentRequest): PaymentReceipt
+  {static} +DECLINED_PAYER: String
+}
+class SimulatedRefundableProcessor {
+  +refund(receipt: PaymentReceipt, amount: Money): RefundReceipt
+}
+
+interface TaxCalculator <<Product B>> {
+  +taxFor(taxableAmount: Money): Money
+}
+class VietnamVatCalculator
+class UsSalesTaxCalculator
+
+interface InvoiceFormatter <<Product C>> {
+  +format(invoice: Invoice, format: InvoiceFormat): String
+}
+abstract class BaseInvoiceFormatter {
+  #{abstract} labels: InvoiceLabels
+  #{abstract} money(value: Money): String
+  +format(invoice: Invoice, format: InvoiceFormat): String
+  -toHtml(invoice: Invoice): String
+  -toCsv(invoice: Invoice): String
+}
+class VietnamInvoiceFormatter
+class UsInvoiceFormatter
+
+VietnamRegionFactory --|> RegionFactory
+UsRegionFactory --|> RegionFactory
+RegionFactory --> "1" Region
+RegionRegistry o-- "1..*" RegionFactory
+
+PaymentProcessor --|> Payable
+SimulatedPaymentProcessor ..|> PaymentProcessor
+SimulatedRefundableProcessor --|> SimulatedPaymentProcessor
+SimulatedRefundableProcessor ..|> Refundable
+VietnamVatCalculator ..|> TaxCalculator
+UsSalesTaxCalculator ..|> TaxCalculator
+BaseInvoiceFormatter ..|> InvoiceFormatter
+VietnamInvoiceFormatter --|> BaseInvoiceFormatter
+UsInvoiceFormatter --|> BaseInvoiceFormatter
+
+RegionFactory ..> PaymentProcessor : creates
+RegionFactory ..> TaxCalculator : creates
+RegionFactory ..> InvoiceFormatter : creates
+VietnamRegionFactory ..> SimulatedPaymentProcessor : MoMo, VNPay, COD-VN
+VietnamRegionFactory ..> SimulatedRefundableProcessor : MoMo, VNPay
+VietnamRegionFactory ..> VietnamVatCalculator
+VietnamRegionFactory ..> VietnamInvoiceFormatter
+UsRegionFactory ..> SimulatedPaymentProcessor : COD-US
+UsRegionFactory ..> SimulatedRefundableProcessor : Stripe, ApplePay
+UsRegionFactory ..> UsSalesTaxCalculator
+UsRegionFactory ..> UsInvoiceFormatter
+
+note right of RegionFactory
+  createPaymentProcessor is the Factory Method (creator): fixed entry point that
+  delegates the choice of concrete processor to newPaymentProcessor and checks the
+  region contract (method and currency match).
+  ISP: COD is only Payable; card and wallet are also Refundable.
+end note
+note bottom of RegionRegistry
+  A new region = one new RegionFactory subclass plus one registration
+  in the composition root. No existing class changes.
+end note
+@enduml

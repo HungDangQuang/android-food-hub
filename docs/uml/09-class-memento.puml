@@ -1,0 +1,85 @@
+@startuml 09-class-memento
+title C6 - Memento: cart snapshots, bounded undo and drafts
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+class Cart <<Originator>> {
+  -clock: Clock
+  -lines: Map<String, CartItem>
+  +items: List<CartItem>
+  +isEmpty: Boolean
+  +add(item: MenuItem, quantity: Int)
+  +remove(itemId: String)
+  +setQuantity(itemId: String, quantity: Int)
+  +clear()
+  +createSnapshot(): CartSnapshot
+  +restore(snapshot: CartSnapshot)
+}
+interface CartSnapshot <<Memento (narrow interface)>> {
+  +takenAt: Instant
+}
+class Memento <<private nested in Cart>> {
+  +takenAt: Instant
+  +lines: Map<String, CartItem>
+}
+class CartHistory <<Caretaker>> {
+  -capacity: Int
+  -stack: ArrayDeque<CartSnapshot>
+  +size: Int
+  +push(snapshot: CartSnapshot)
+  +pop(): CartSnapshot?
+  +clear()
+}
+interface CartDraftRepository {
+  +save(customerId: String, snapshot: CartSnapshot)
+  +load(customerId: String): CartSnapshot?
+  +clear(customerId: String)
+}
+class InMemoryCartDraftRepository {
+  -drafts: ConcurrentHashMap<String, CartSnapshot>
+}
+class CartEditor {
+  +cart: Cart
+  -history: CartHistory
+  -drafts: CartDraftRepository
+  -customerId: String
+  +canUndo: Boolean
+  +add(item: MenuItem, quantity: Int)
+  +remove(itemId: String)
+  +setQuantity(itemId: String, quantity: Int)
+  +clear()
+  +undo(): Boolean
+  +restoreDraft(): Boolean
+  -mutate(change: () -> Unit)
+}
+class CartItem <<data>>
+class MenuItem <<data>>
+class CartViewModel {
+  -editor: CartEditor
+  -menu: MenuRepository
+}
+
+Cart *-- "0..*" CartItem : lines
+CartItem --> "1" MenuItem
+Cart ..> CartSnapshot : creates, restores
+Memento ..|> CartSnapshot
+Cart +-- Memento
+Memento --> "0..*" CartItem
+CartHistory o--> "0..capacity" CartSnapshot
+InMemoryCartDraftRepository ..|> CartDraftRepository
+CartDraftRepository ..> CartSnapshot
+InMemoryCartDraftRepository o--> "0..*" CartSnapshot : one per customer
+CartEditor --> "1" Cart
+CartEditor --> "1" CartHistory
+CartEditor --> "1" CartDraftRepository
+CartViewModel --> "1" CartEditor
+
+note bottom of Memento
+  Private to Cart: only Cart can create or read it, so encapsulation is kept.
+  The caretakers (CartHistory, CartDraftRepository) see only CartSnapshot.takenAt.
+end note
+note right of CartHistory
+  When full, the oldest backup is discarded.
+end note
+@enduml

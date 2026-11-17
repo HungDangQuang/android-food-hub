@@ -1,0 +1,55 @@
+@startuml 14-sequence-cancel-with-fee
+title Sequence 3 - Cancel a CONFIRMED order (10% fee) and refund the rest
+skinparam shadowing false
+skinparam sequenceMessageAlign left
+
+participant "View" as View
+participant "OrderTrackingViewModel" as VM
+participant "DefaultOrderFacade" as Facade
+participant "CancelOrderUseCase" as UseCase
+participant "OrderRepository" as Repo
+participant "Order" as Order
+participant "ConfirmedState" as State
+participant "OrderEventPublisher" as Publisher
+participant "RefundExecutor" as Refunds
+participant "RegionRegistry" as Registry
+participant "RegionFactory" as Factory
+participant "PaymentProcessor\n(Refundable)" as Processor
+
+View -> VM : cancel()
+VM -> Facade : cancelOrder(orderId)
+Facade -> UseCase : execute(orderId)
+UseCase -> Repo : findById(orderId)
+Repo --> UseCase : Order
+UseCase -> Order : cancel()
+Order -> State : cancel(context)
+State -> State : fee = amountPaid.percent(10)\nrefund = amountPaid - fee
+State -> Order : context.transitionTo(CancelledState)
+Order -> Publisher : publish(OrderStatusChanged CONFIRMED -> CANCELLED)
+note right of Publisher : observers react: UI state, urgent notification, analytics
+Order --> UseCase : CancellationResult(fee, refund)
+UseCase -> Repo : save(order)
+
+opt refund.isPositive
+  UseCase -> Refunds : refund(order, refund)
+  Refunds -> Registry : forRegion(order.region.code)
+  Registry --> Refunds : RegionFactory
+  Refunds -> Factory : createPaymentProcessor(order.paymentMethod)
+  Factory --> Refunds : PaymentProcessor (Refundable: card, wallet)
+  Refunds -> Processor : refund(order.receipt, refund)
+  Processor --> Refunds : RefundReceipt
+end
+note right of UseCase
+  Cash on delivery: nothing was collected, so refund = 0
+  and this branch is skipped.
+end note
+
+UseCase --> Facade : CancellationResult
+Facade --> VM : CancellationResult
+VM --> View : state updated by the event (status CANCELLED)
+note over State
+  Not allowed from PREPARING onwards:
+  the state throws IllegalOrderOperationException and
+  the ViewModel shows it as uiState.error.
+end note
+@enduml

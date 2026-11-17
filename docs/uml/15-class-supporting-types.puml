@@ -1,0 +1,81 @@
+@startuml 15-class-supporting-types
+title Supporting types: invoice, payment value objects, exception hierarchy
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+class Invoice <<data>> {
+  +orderId: OrderId
+  +issuedAt: Instant
+  +customerName: String
+  +region: Region
+  +paymentMethod: PaymentMethod
+  +lines: List<InvoiceLine>
+  +price: PriceBreakdown
+  {static} +from(order: Order, issuedAt: Instant): Invoice
+}
+class InvoiceLine <<data>> {
+  +name: String
+  +quantity: Int
+  +unitPrice: Money
+  +lineTotal: Money
+}
+class InvoiceLabels <<data>>
+enum InvoiceFormat {
+  HTML
+  CSV
+}
+interface InvoiceFormatter {
+  +format(invoice: Invoice, format: InvoiceFormat): String
+}
+abstract class BaseInvoiceFormatter
+class PaymentRequest <<data>> {
+  +orderRef: String
+  +amount: Money
+  +method: PaymentMethod
+  +payerRef: String
+}
+class RefundReceipt <<data>> {
+  +transactionId: String
+  +refundedAmount: Money
+}
+class SentMessage <<data>> {
+  +channel: ChannelType
+  +to: String
+  +title: String
+  +body: String
+  +urgent: Boolean
+}
+class Order
+class ExportInvoiceUseCase {
+  +execute(orderId: OrderId, format: InvoiceFormat): String
+}
+
+ExportInvoiceUseCase ..> Invoice : builds
+ExportInvoiceUseCase ..> InvoiceFormatter : uses the formatter of the order's region
+Invoice *-- "1..*" InvoiceLine
+Invoice ..> Order : built from
+InvoiceFormatter ..> Invoice
+InvoiceFormatter ..> InvoiceFormat
+BaseInvoiceFormatter ..|> InvoiceFormatter
+BaseInvoiceFormatter --> "1" InvoiceLabels
+
+class DomainException
+class OrderException
+class IllegalOrderOperationException
+class RefundWindowExpiredException
+class OrderNotFoundException
+class ValidationException
+class PaymentFailedException
+class OutOfStockException
+class UnsupportedRegionException
+
+OrderException --|> DomainException
+IllegalOrderOperationException --|> OrderException
+RefundWindowExpiredException --|> OrderException
+OrderNotFoundException --|> OrderException
+ValidationException --|> DomainException
+PaymentFailedException --|> DomainException
+OutOfStockException --|> DomainException
+UnsupportedRegionException --|> DomainException
+@enduml

@@ -1,0 +1,36 @@
+@startuml 13-state-diagram
+title Order lifecycle - state diagram (bonus)
+skinparam shadowing false
+
+[*] --> CREATED : checkout succeeded\n(payment taken, stock reserved)
+
+CREATED --> CONFIRMED : confirm()
+CREATED --> CANCELLED : cancel()\n[fee 0, refund 100%]
+CREATED --> CREATED : editItems()
+
+CONFIRMED --> PREPARING : startPreparing()
+CONFIRMED --> CANCELLED : cancel()\n[fee 10%, refund 90%]
+
+PREPARING --> DELIVERING : startDelivery()\n[type requires courier]
+PREPARING --> DELIVERED : markDelivered()\n[pickup]
+
+DELIVERING --> DELIVERED : markDelivered()
+
+DELIVERED --> DELIVERED : requestRefund()\n[paid online, within 24h, once]
+DELIVERED --> DELIVERED : rate(1..5)\n[once]
+
+CANCELLED --> [*]
+
+state CREATED : edit items: yes\ncancel: free
+state CONFIRMED : edit items: no\ncancel: 10% fee
+state PREPARING : edit: no, cancel: no
+state DELIVERING : edit: no, cancel: no\ncourier location visible
+state DELIVERED : rate (once), refund window 24h\n(not for cash on delivery)
+state CANCELLED : terminal
+
+note bottom
+  Any operation not drawn for a state is rejected with
+  IllegalOrderOperationException (no state change, no event).
+  Delivery and scheduled orders pass through DELIVERING; pickup orders skip it.
+end note
+@enduml

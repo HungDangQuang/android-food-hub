@@ -1,0 +1,114 @@
+@startuml 08-class-bridge
+title C5 - Bridge: notification kind x delivery channel
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide empty members
+
+abstract class Notification <<Abstraction>> {
+  -channel: NotificationChannel
+  #{abstract} buildMessage(): Message
+  +send(recipient: Customer)
+}
+class OrderUpdateNotification {
+  -orderId: OrderId
+  -text: String
+  #buildMessage(): Message
+}
+class PromoNotification {
+  -headline: String
+  #buildMessage(): Message
+}
+class UrgentNotification {
+  -orderId: OrderId
+  -text: String
+  #buildMessage(): Message
+}
+
+interface NotificationChannel <<Implementor>> {
+  +type: ChannelType
+  +deliver(recipient: Customer, message: Message)
+}
+class PushChannel {
+  -log: SentMessageLog
+  +type: ChannelType
+  +deliver(recipient: Customer, message: Message)
+}
+class SmsChannel {
+  -log: SentMessageLog
+  +type: ChannelType
+  +deliver(recipient: Customer, message: Message)
+  {static} +MAX_LENGTH: Int
+}
+class EmailChannel {
+  -log: SentMessageLog
+  +type: ChannelType
+  +deliver(recipient: Customer, message: Message)
+}
+class Message <<data>> {
+  +title: String
+  +body: String
+  +priority: Priority
+}
+enum Priority {
+  NORMAL
+  HIGH
+}
+
+interface CustomerNotifier {
+  +notifyOrderUpdate(customer: Customer, orderId: OrderId, text: String)
+  +notifyUrgent(customer: Customer, orderId: OrderId, text: String)
+  +notifyPromo(customer: Customer, headline: String)
+}
+class MultiChannelNotifier {
+  -channels: Map<ChannelType, NotificationChannel>
+  -onChannelFailure: (ChannelType, Exception) -> Unit
+  +notifyOrderUpdate(customer: Customer, orderId: OrderId, text: String)
+  +notifyUrgent(customer: Customer, orderId: OrderId, text: String)
+  +notifyPromo(customer: Customer, headline: String)
+  -broadcast(customer: Customer, create: (NotificationChannel) -> Notification)
+}
+class NotificationOrderListener {
+  -notifier: CustomerNotifier
+  +onOrderStatusChanged(event: OrderStatusChanged)
+}
+class PromoAnnouncer <<Admin stand-in>> {
+  -notifier: CustomerNotifier
+  +announce(promo: PromoCode, customers: List<Customer>)
+}
+class SentMessageLog {
+  +record(message: SentMessage)
+  +all(): List<SentMessage>
+  +on(channel: ChannelType): List<SentMessage>
+}
+class Customer
+
+OrderUpdateNotification --|> Notification
+PromoNotification --|> Notification
+UrgentNotification --|> Notification
+Notification o--> "1" NotificationChannel : channel (the bridge)
+PushChannel ..|> NotificationChannel
+SmsChannel ..|> NotificationChannel
+EmailChannel ..|> NotificationChannel
+Notification ..> Message : builds
+NotificationChannel ..> Message
+Message --> "1" Priority
+PushChannel --> "1" SentMessageLog
+SmsChannel --> "1" SentMessageLog
+EmailChannel --> "1" SentMessageLog
+Notification ..> Customer
+MultiChannelNotifier ..|> CustomerNotifier
+MultiChannelNotifier --> "0..*" NotificationChannel
+MultiChannelNotifier ..> Notification : creates
+NotificationOrderListener --> "1" CustomerNotifier
+PromoAnnouncer --> "1" CustomerNotifier
+
+note right of NotificationOrderListener
+  Urgent vs normal is read from OrderStatus.urgent (data of the status),
+  not decided by comparing the status with a constant.
+end note
+note bottom of Notification
+  Two independent hierarchies: 3 kinds x 3 channels = 6 classes instead of 9.
+  A fourth channel is exactly one new class; a fourth kind is one new subclass.
+  Channel-specific formatting (SMS 160 chars, e-mail subject) stays in the channel.
+end note
+@enduml
